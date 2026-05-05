@@ -288,6 +288,29 @@ textarea:focus-visible {
   margin-top: 6px;
 }
 
+.model-select-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: end;
+}
+
+.model-select-field {
+  min-width: 280px;
+  max-width: 420px;
+}
+
+.helper-copy {
+  color: #5c6776;
+  font-size: 13px;
+}
+
+.inline-select {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+}
+
 .shortcut-row,
 .step-list {
   display: grid;
@@ -519,5 +542,15 @@ textarea {
   .metric-grid,
   .shortcut-row {
     grid-template-columns: 1fr;
+  }
+
+  .model-select-row {
+    display: grid;
+    align-items: stretch;
+  }
+
+  .model-select-field {
+    min-width: 0;
+    max-width: none;
   }
 }

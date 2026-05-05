@@ -971,6 +971,8 @@ function ParameterEditor({
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("setup");
+  const [selectedMaterialIndex, setSelectedMaterialIndex] = useState(0);
+  const [selectedDrainage, setSelectedDrainage] = useState<Drainage>("undrained");
   const [selectedModelIndex, setSelectedModelIndex] = useState(0);
   const [modelTab, setModelTab] = useState<ModelWorkspaceTab>("overview");
   const [documentState, setDocumentState] = useState<GroundModelDocument>(() =>
@@ -1012,6 +1014,8 @@ function App() {
         ? agsiToGroundModel(JSON.parse(text) as AgsiRoot)
         : parseYamlDocument(text);
       setDocumentState(nextDocument);
+      setSelectedMaterialIndex(0);
+      setSelectedDrainage("undrained");
       setSelectedModelIndex(0);
       setModelTab("overview");
       setImportError("");
@@ -1027,6 +1031,10 @@ function App() {
 
   const materials = documentState.materials ?? [];
   const groundModels = documentState.ground_models ?? [];
+  const safeSelectedMaterialIndex =
+    materials.length === 0 ? -1 : Math.min(selectedMaterialIndex, materials.length - 1);
+  const selectedMaterial =
+    safeSelectedMaterialIndex >= 0 ? materials[safeSelectedMaterialIndex] : undefined;
   const safeSelectedModelIndex =
     groundModels.length === 0 ? -1 : Math.min(selectedModelIndex, groundModels.length - 1);
   const selectedModel = safeSelectedModelIndex >= 0 ? groundModels[safeSelectedModelIndex] : undefined;
@@ -1038,6 +1046,10 @@ function App() {
     try {
       const nextDocument = parseYamlDocument(yamlDraft);
       setDocumentState(nextDocument);
+      setSelectedMaterialIndex(0);
+      setSelectedDrainage("undrained");
+      setSelectedModelIndex(0);
+      setModelTab("overview");
       setYamlDirty(false);
       setYamlError("");
       setImportError("");
@@ -1065,6 +1077,8 @@ function App() {
           <button
             onClick={() => {
               setDocumentState(blankDocument());
+              setSelectedMaterialIndex(0);
+              setSelectedDrainage("undrained");
               setSelectedModelIndex(0);
               setModelTab("overview");
             }}
@@ -1075,6 +1089,8 @@ function App() {
           <button
             onClick={() => {
               setDocumentState(parseYamlDocument(SAMPLE_YAML));
+              setSelectedMaterialIndex(0);
+              setSelectedDrainage("undrained");
               setSelectedModelIndex(0);
               setModelTab("overview");
             }}
@@ -1304,18 +1320,19 @@ function App() {
             <div>
               <h2>Materials</h2>
               <p className="section-copy">
-                Define the reusable material library first. Parameters live here and are shared by
-                cases in the models tab.
+                Define the reusable material library first. Select one material from the list, then
+                edit its properties in the panel.
               </p>
             </div>
             <button
               type="button"
-              onClick={() =>
+              onClick={() => {
                 setDocumentState({
                   ...documentState,
                   materials: [...materials, defaultMaterial()]
-                })
-              }
+                });
+                setSelectedMaterialIndex(materials.length);
+              }}
             >
               Add Material
             </button>
@@ -1328,125 +1345,172 @@ function App() {
                 <span>Add your first material to start building the library.</span>
               </div>
             ) : null}
-            {materials.map((material, materialIndex) => (
-              <div className="subcard" key={material.id || materialIndex}>
-                  <div className="subhead">
-                    <strong>{material.name || "Untitled Material"}</strong>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDocumentState({
-                          ...documentState,
-                          materials: removeFromArray(materials, materialIndex)
-                        })
-                      }
-                    >
-                      Remove
-                    </button>
+            {selectedMaterial ? (
+              <div className="model-workspace">
+                <aside className="model-rail">
+                  <div className="model-rail-head">
+                    <strong>Material Library</strong>
+                    <span>{materials.length} total</span>
                   </div>
-
-                  <div className="form-grid">
-                    <label>
-                      <span>ID</span>
-                      <input
-                        value={material.id}
-                        onChange={(event) =>
-                          setDocumentState({
-                            ...documentState,
-                            materials: setInArray(materials, materialIndex, (item) => ({
-                              ...item,
-                              id: event.target.value
-                            }))
-                          })
+                  <div className="model-list">
+                    {materials.map((material, materialIndex) => (
+                      <button
+                        key={material.id || materialIndex}
+                        type="button"
+                        className={
+                          safeSelectedMaterialIndex === materialIndex
+                            ? "model-list-item active"
+                            : "model-list-item"
                         }
-                      />
-                    </label>
-                    <label>
-                      <span>Name</span>
-                      <input
-                        value={material.name}
-                        onChange={(event) =>
-                          setDocumentState({
-                            ...documentState,
-                            materials: setInArray(materials, materialIndex, (item) => ({
-                              ...item,
-                              name: event.target.value
-                            }))
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      <span>Color</span>
-                      <input
-                        value={material.color ?? ""}
-                        onChange={(event) =>
-                          setDocumentState({
-                            ...documentState,
-                            materials: setInArray(materials, materialIndex, (item) => ({
-                              ...item,
-                              color: event.target.value
-                            }))
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      <span>Hatch</span>
-                      <input
-                        value={material.hatch ?? ""}
-                        onChange={(event) =>
-                          setDocumentState({
-                            ...documentState,
-                            materials: setInArray(materials, materialIndex, (item) => ({
-                              ...item,
-                              hatch: event.target.value
-                            }))
-                          })
-                        }
-                      />
-                    </label>
-                    <label className="full-width">
-                      <span>Description</span>
-                      <textarea
-                        rows={2}
-                        value={material.description ?? ""}
-                        onChange={(event) =>
-                          setDocumentState({
-                            ...documentState,
-                            materials: setInArray(materials, materialIndex, (item) => ({
-                              ...item,
-                              description: event.target.value
-                            }))
-                          })
-                        }
-                      />
-                    </label>
+                        onClick={() => setSelectedMaterialIndex(materialIndex)}
+                      >
+                        <strong>{material.name || `Material ${materialIndex + 1}`}</strong>
+                        <span>{material.id || "No ID"}</span>
+                      </button>
+                    ))}
                   </div>
+                </aside>
 
-                  {DRAINAGES.map((drainage) => (
-                    <div className="subsection" key={drainage}>
+                <div className="model-detail stack">
+                  <div className="subcard" key={selectedMaterial.id || safeSelectedMaterialIndex}>
+                    <div className="subhead">
+                      <div>
+                        <strong>{selectedMaterial.name || "Untitled Material"}</strong>
+                        <p className="section-copy">
+                          Reusable material parameters live here and are referenced by units in the
+                          active model.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDocumentState({
+                            ...documentState,
+                            materials: removeFromArray(materials, safeSelectedMaterialIndex)
+                          });
+                          setSelectedMaterialIndex((current) =>
+                            Math.max(0, Math.min(current, materials.length - 2))
+                          );
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+
+                    <div className="form-grid">
+                      <label>
+                        <span>ID</span>
+                        <input
+                          value={selectedMaterial.id}
+                          onChange={(event) =>
+                            setDocumentState({
+                              ...documentState,
+                              materials: setInArray(materials, safeSelectedMaterialIndex, (item) => ({
+                                ...item,
+                                id: event.target.value
+                              }))
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>Name</span>
+                        <input
+                          value={selectedMaterial.name}
+                          onChange={(event) =>
+                            setDocumentState({
+                              ...documentState,
+                              materials: setInArray(materials, safeSelectedMaterialIndex, (item) => ({
+                                ...item,
+                                name: event.target.value
+                              }))
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>Color</span>
+                        <input
+                          value={selectedMaterial.color ?? ""}
+                          onChange={(event) =>
+                            setDocumentState({
+                              ...documentState,
+                              materials: setInArray(materials, safeSelectedMaterialIndex, (item) => ({
+                                ...item,
+                                color: event.target.value
+                              }))
+                            })
+                          }
+                        />
+                      </label>
+                      <label>
+                        <span>Hatch</span>
+                        <input
+                          value={selectedMaterial.hatch ?? ""}
+                          onChange={(event) =>
+                            setDocumentState({
+                              ...documentState,
+                              materials: setInArray(materials, safeSelectedMaterialIndex, (item) => ({
+                                ...item,
+                                hatch: event.target.value
+                              }))
+                            })
+                          }
+                        />
+                      </label>
+                      <label className="full-width">
+                        <span>Description</span>
+                        <textarea
+                          rows={2}
+                          value={selectedMaterial.description ?? ""}
+                          onChange={(event) =>
+                            setDocumentState({
+                              ...documentState,
+                              materials: setInArray(materials, safeSelectedMaterialIndex, (item) => ({
+                                ...item,
+                                description: event.target.value
+                              }))
+                            })
+                          }
+                        />
+                      </label>
+                    </div>
+
+                    <div className="subsection">
                       <div className="section-head small">
-                        <h3>{drainage} parameters</h3>
+                        <h3>Parameters</h3>
+                        <label className="inline-select">
+                          <span>Drainage set</span>
+                          <select
+                            value={selectedDrainage}
+                            onChange={(event) => setSelectedDrainage(event.target.value as Drainage)}
+                          >
+                            {DRAINAGES.map((drainage) => (
+                              <option key={drainage} value={drainage}>
+                                {drainage}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
                       </div>
                       <div className="parameter-grid">
                         {PARAMETER_KEYS.map((parameterKey) => (
                           <ParameterEditor
                             key={parameterKey}
                             label={parameterKey}
-                            value={material.parameter_sets?.[drainage]?.[parameterKey]}
+                            value={selectedMaterial.parameter_sets?.[selectedDrainage]?.[parameterKey]}
                             onChange={(value) =>
                               setDocumentState({
                                 ...documentState,
-                                materials: setInArray(materials, materialIndex, (item) => ({
+                                materials: setInArray(materials, safeSelectedMaterialIndex, (item) => ({
                                   ...item,
                                   parameter_sets: {
                                     ...(item.parameter_sets ?? {}),
-                                    [drainage]: {
-                                      ...(item.parameter_sets?.[drainage] ?? {}),
+                                    [selectedDrainage]: {
+                                      ...(item.parameter_sets?.[selectedDrainage] ?? {}),
                                       ...(value === undefined
                                         ? Object.fromEntries(
-                                            Object.entries(item.parameter_sets?.[drainage] ?? {}).filter(
+                                            Object.entries(item.parameter_sets?.[selectedDrainage] ?? {}).filter(
                                               ([key]) => key !== parameterKey
                                             )
                                           )
@@ -1460,9 +1524,10 @@ function App() {
                         ))}
                       </div>
                     </div>
-                  ))}
+                  </div>
                 </div>
-              ))}
+              </div>
+            ) : null}
           </div>
         </section>
       ) : null}
@@ -1500,33 +1565,30 @@ function App() {
               </div>
             ) : null}
             {selectedModel ? (
-              <div className="model-workspace">
-                <aside className="model-rail">
-                  <div className="model-rail-head">
-                    <strong>Model Explorer</strong>
-                    <span>{groundModels.length} total</span>
-                  </div>
-                  <div className="model-list">
-                    {groundModels.map((model, modelIndex) => (
-                      <button
-                        key={model.id || modelIndex}
-                        type="button"
-                        className={
-                          safeSelectedModelIndex === modelIndex
-                            ? "model-list-item active"
-                            : "model-list-item"
-                        }
-                        onClick={() => {
-                          setSelectedModelIndex(modelIndex);
+              <div className="stack">
+                <section className="subcard">
+                  <div className="model-select-row">
+                    <label className="model-select-field">
+                      <span>Active model</span>
+                      <select
+                        value={safeSelectedModelIndex}
+                        onChange={(event) => {
+                          setSelectedModelIndex(Number(event.target.value));
                           setModelTab("overview");
                         }}
                       >
-                        <strong>{model.name || `Model ${modelIndex + 1}`}</strong>
-                        <span>{model.id || "No ID"}</span>
-                      </button>
-                    ))}
+                        {groundModels.map((model, modelIndex) => (
+                          <option key={model.id || modelIndex} value={modelIndex}>
+                            {model.name || `Model ${modelIndex + 1}`} {model.id ? `(${model.id})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <span className="helper-copy">
+                      {groundModels.length} model{groundModels.length === 1 ? "" : "s"} in this project
+                    </span>
                   </div>
-                </aside>
+                </section>
 
                 <div className="model-detail stack">
                   <section className="subcard model-header-card">
