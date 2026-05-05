@@ -3,41 +3,12 @@ import ReactDOM from "react-dom/client";
 import { parse, stringify } from "yaml";
 import "./styles.css";
 
-type Severity = "error" | "warning";
-
-type Diagnostic = {
-  code: string;
-  severity: Severity;
-  path: string;
-  message: string;
-};
-
-type SourceFormat = "groundmodel-yaml" | "agsi-json";
-
-type BaseRef = "MODEL_BASE" | string | { mAOD: number };
-
-type GroundModelDocument = {
-  schema_version: string;
-  project: {
-    id: string;
-    name: string;
-    description?: string;
-    vertical_datum: string;
-    horizontal_crs?: string;
-    units?: string;
-  };
-  materials?: Material[];
-  ground_models?: GroundModel[];
-};
-
-type Material = {
-  id: string;
-  name: string;
-  description?: string;
-  color?: string;
-  hatch?: string;
-  parameter_sets?: Record<string, Record<string, number | ParameterRange>>;
-};
+type Condition = "proven" | "not_proven" | "assumed" | "inferred";
+type Drainage = "undrained" | "drained" | "total" | "effective";
+type VerticalDatum = "mAOD" | "mOD" | "mASL" | "mBGL" | "local";
+type GroundModelType = "observational" | "design" | "hydrogeological";
+type Dimensionality = "1D" | "2D" | "3D";
+type UnitSystem = "SI" | "imperial";
 
 type ParameterRange = {
   value?: number;
@@ -46,61 +17,107 @@ type ParameterRange = {
   char?: number;
 };
 
+type ParameterValue = number | ParameterRange;
+
+type BaseRef = "MODEL_BASE" | string | { mAOD: number };
+
+type Project = {
+  id: string;
+  name: string;
+  description?: string;
+  vertical_datum: VerticalDatum;
+  horizontal_crs?: string;
+  units?: UnitSystem;
+};
+
+type Material = {
+  id: string;
+  name: string;
+  description?: string;
+  color?: string;
+  hatch?: string;
+  parameter_sets?: Record<string, Record<string, ParameterValue>>;
+};
+
+type Applicability = {
+  description?: string;
+  plan_polygon_wkt?: string;
+  top_mAOD?: number;
+  base_mAOD?: number;
+};
+
+type GroundwaterLevel = {
+  elevation_mAOD: number;
+};
+
+type ModelBase = {
+  elevation_mAOD: number;
+  material_ref: string;
+  condition: Condition;
+};
+
+type ModelUnit = {
+  id: string;
+  name?: string;
+  material_ref: string;
+  top_mAOD?: number;
+  base: BaseRef;
+  base_condition?: Condition;
+  geometry_wkt?: string;
+  top_surface_wkt?: string;
+  volume_wkt?: string;
+};
+
+type ModelCase = {
+  id: string;
+  name: string;
+  drainage: Drainage;
+};
+
 type GroundModel = {
   id: string;
   name: string;
-  type?: string;
-  dimensionality?: string;
-  applicability?: {
-    description?: string;
-    plan_polygon_wkt?: string;
-    top_mAOD?: number;
-    base_mAOD?: number;
-  };
-  groundwater_level?: {
-    elevation_mAOD: number;
-  };
-  model_base: {
-    elevation_mAOD: number;
-    material_ref: string;
-    condition: string;
-  };
-  units?: Array<{
-    id: string;
-    name?: string;
-    material_ref: string;
-    top_mAOD?: number;
-    base: BaseRef;
-    base_condition?: string;
-    geometry_wkt?: string;
-    top_surface_wkt?: string;
-    volume_wkt?: string;
-  }>;
-  cases?: Array<{
-    id: string;
-    name: string;
-    drainage: string;
-  }>;
+  type?: GroundModelType;
+  dimensionality?: Dimensionality;
+  applicability?: Applicability;
+  groundwater_level?: GroundwaterLevel;
+  model_base: ModelBase;
+  units?: ModelUnit[];
+  cases?: ModelCase[];
   section_line_wkt?: string;
 };
 
-type AgsiRoot = {
-  agsSchema?: {
-    name?: string;
-    version?: string;
-  };
-  agsFile?: {
-    name?: string;
-    format?: string;
-  };
-  agsProject: {
-    projectID: string;
-    projectName: string;
-    description?: string;
-    verticalDatum?: string;
-    horizontalCRS?: string;
-  };
-  agsiModel?: AgsiModel[];
+type GroundModelDocument = {
+  schema_version: string;
+  project: Project;
+  materials?: Material[];
+  ground_models?: GroundModel[];
+};
+
+type Diagnostic = {
+  code: string;
+  path: string;
+  message: string;
+};
+
+type AgsiParameter = {
+  codeID: string;
+  caseID: string;
+  drainage: string;
+  value: ParameterValue;
+};
+
+type AgsiElement = {
+  elementID: string;
+  name?: string;
+  materialRef: string;
+  top_mAOD?: number;
+  base?: BaseRef;
+  baseCondition?: string;
+  geometryWKT?: string;
+  topSurfaceWKT?: string;
+  volumeWKT?: string;
+  agsiDataParameterValue?: AgsiParameter[];
 };
 
 type AgsiModel = {
@@ -123,73 +140,53 @@ type AgsiModel = {
   elements?: AgsiElement[];
 };
 
-type AgsiElement = {
-  elementID: string;
-  name?: string;
-  materialRef: string;
-  top_mAOD?: number;
-  base?: BaseRef;
-  baseCondition?: string;
-  geometryWKT?: string;
-  topSurfaceWKT?: string;
-  volumeWKT?: string;
-  agsiDataParameterValue?: AgsiParameter[];
+type AgsiRoot = {
+  agsSchema?: {
+    name?: string;
+    version?: string;
+  };
+  agsFile?: {
+    name?: string;
+    format?: string;
+  };
+  agsProject: {
+    projectID: string;
+    projectName: string;
+    description?: string;
+    verticalDatum?: string;
+    horizontalCRS?: string;
+  };
+  agsiModel?: AgsiModel[];
 };
 
-type AgsiParameter = {
-  codeID: string;
-  caseID: string;
-  drainage: string;
-  value: number | ParameterRange;
-};
-
-const SAMPLE_YAML = `schema_version: "0.1.0"
-project:
-  id: "EXAMPLE-01"
-  name: "Worked Orchard Example"
-  vertical_datum: "mAOD"
-  horizontal_crs: "EPSG:27700"
-materials:
-  - id: "MAT-CLAY"
-    name: "London Clay"
-    color: "#A87C4F"
-    hatch: "clay"
-    parameter_sets:
-      undrained:
-        gamma: 19
-        cu: 75
-      drained:
-        gamma: 19
-        phi_prime: 26
-        c_prime: 5
-ground_models:
-  - id: "GM-01"
-    name: "Site-wide Ground Model"
-    type: "design"
-    dimensionality: "1D"
-    applicability:
-      description: "Applies south of the river."
-      plan_polygon_wkt: "POLYGON((535000 180000, 535500 180000, 535500 180500, 535000 180500, 535000 180000))"
-      top_mAOD: 65.0
-      base_mAOD: 20.0
-    groundwater_level:
-      elevation_mAOD: 58.5
-    model_base:
-      elevation_mAOD: 20.0
-      material_ref: "MAT-CLAY"
-      condition: "assumed"
-    units:
-      - id: "UNIT-CLAY"
-        name: "London Clay"
-        material_ref: "MAT-CLAY"
-        top_mAOD: 60.2
-        base: "MODEL_BASE"
-        base_condition: "not_proven"
-    cases:
-      - id: "SLS-UND"
-        name: "SLS - Undrained"
-        drainage: "undrained"
-`;
+const DRAINAGES: Drainage[] = ["undrained", "drained", "total", "effective"];
+const CONDITIONS: Condition[] = ["proven", "not_proven", "assumed", "inferred"];
+const VERTICAL_DATUMS: VerticalDatum[] = ["mAOD", "mOD", "mASL", "mBGL", "local"];
+const MODEL_TYPES: GroundModelType[] = ["design", "observational", "hydrogeological"];
+const DIMENSIONALITIES: Dimensionality[] = ["1D", "2D", "3D"];
+const UNIT_SYSTEMS: UnitSystem[] = ["SI", "imperial"];
+const PARAMETER_KEYS = [
+  "gamma",
+  "gamma_sat",
+  "gamma_dry",
+  "cu",
+  "phi_prime",
+  "c_prime",
+  "phi_cv",
+  "e",
+  "eu",
+  "g",
+  "g0",
+  "nu",
+  "k",
+  "cv",
+  "mv",
+  "ocr",
+  "k0",
+  "vs",
+  "qc",
+  "n_spt"
+] as const;
 
 const CODE_MAP: Record<string, string> = {
   gamma: "UnitWeight",
@@ -218,84 +215,315 @@ const REVERSE_CODE_MAP = Object.fromEntries(
   Object.entries(CODE_MAP).map(([key, value]) => [value, key])
 );
 
-const ALLOWED_DRAINAGE_KEYS = ["undrained", "drained", "total", "effective"];
-const ALLOWED_PARAMETER_KEYS = Object.keys(CODE_MAP);
+const SAMPLE_YAML = `schema_version: "0.1.0"
+project:
+  id: "EXAMPLE-01"
+  name: "Worked Orchard Example"
+  description: "Example project for editor testing."
+  vertical_datum: "mAOD"
+  horizontal_crs: "EPSG:27700"
+  units: "SI"
+materials:
+  - id: "MAT-CLAY"
+    name: "London Clay"
+    description: "Stiff fissured clay"
+    color: "#A87C4F"
+    hatch: "clay"
+    parameter_sets:
+      undrained:
+        gamma: 19
+        cu:
+          value: 75
+          min: 55
+          max: 95
+      drained:
+        phi_prime: 26
+ground_models:
+  - id: "GM-01"
+    name: "Site-wide Ground Model"
+    type: "design"
+    dimensionality: "1D"
+    applicability:
+      description: "Applies south of the river."
+      plan_polygon_wkt: "POLYGON((535000 180000, 535500 180000, 535500 180500, 535000 180500, 535000 180000))"
+      top_mAOD: 65
+      base_mAOD: 20
+    groundwater_level:
+      elevation_mAOD: 58.5
+    model_base:
+      elevation_mAOD: 20
+      material_ref: "MAT-CLAY"
+      condition: "assumed"
+    units:
+      - id: "UNIT-CLAY"
+        name: "London Clay"
+        material_ref: "MAT-CLAY"
+        top_mAOD: 60.2
+        base: "MODEL_BASE"
+        base_condition: "not_proven"
+        geometry_wkt: "POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))"
+    cases:
+      - id: "SLS-UND"
+        name: "SLS - Undrained"
+        drainage: "undrained"
+    section_line_wkt: "LINESTRING(0 0, 10 0)"
+`;
 
-function appError(message: string): Diagnostic[] {
-  return [{ code: "GMAPP", severity: "error", path: "$", message }];
+function parseYamlDocument(input: string): GroundModelDocument {
+  return parse(input) as GroundModelDocument;
 }
 
-function parseGroundModelText(input: string) {
-  try {
-    const document = parse(input) as GroundModelDocument;
-    return {
-      document,
-      diagnostics: validateDocument(document)
-    };
-  } catch (error) {
-    return {
-      document: null,
-      diagnostics: appError(
-        error instanceof Error ? `YAML parse error: ${error.message}` : "YAML parse error"
-      )
-    };
-  }
+function newId(prefix: string) {
+  return `${prefix}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
 }
 
-function parseAgsiText(input: string) {
-  try {
-    const agsi = JSON.parse(input) as AgsiRoot;
-    const document = agsiToGroundModel(agsi);
-    return {
-      document,
-      agsi,
-      diagnostics: validateDocument(document)
-    };
-  } catch (error) {
-    return {
-      document: null,
-      agsi: null,
-      diagnostics: appError(
-        error instanceof Error ? `AGSi parse error: ${error.message}` : "AGSi parse error"
-      )
-    };
-  }
+function blankDocument(): GroundModelDocument {
+  return {
+    schema_version: "0.1.0",
+    project: {
+      id: "",
+      name: "",
+      description: "",
+      vertical_datum: "mAOD",
+      horizontal_crs: "",
+      units: "SI"
+    },
+    materials: [],
+    ground_models: []
+  };
 }
 
-function validateDocument(doc: GroundModelDocument | null | undefined): Diagnostic[] {
-  if (!doc || typeof doc !== "object") {
-    return appError("Document must be an object.");
+function defaultMaterial(): Material {
+  return {
+    id: newId("MAT"),
+    name: "New Material",
+    description: "",
+    color: "",
+    hatch: "",
+    parameter_sets: {}
+  };
+}
+
+function defaultModel(materialRef = ""): GroundModel {
+  return {
+    id: newId("GM"),
+    name: "New Ground Model",
+    type: "design",
+    dimensionality: "1D",
+    applicability: undefined,
+    groundwater_level: undefined,
+    model_base: {
+      elevation_mAOD: 0,
+      material_ref: materialRef,
+      condition: "assumed"
+    },
+    units: [],
+    cases: [],
+    section_line_wkt: ""
+  };
+}
+
+function defaultUnit(materialRef = ""): ModelUnit {
+  return {
+    id: newId("UNIT"),
+    name: "",
+    material_ref: materialRef,
+    top_mAOD: undefined,
+    base: "MODEL_BASE",
+    base_condition: undefined,
+    geometry_wkt: "",
+    top_surface_wkt: "",
+    volume_wkt: ""
+  };
+}
+
+function defaultCase(): ModelCase {
+  return {
+    id: newId("CASE"),
+    name: "New Case",
+    drainage: "undrained"
+  };
+}
+
+function defaultRange(): ParameterRange {
+  return {
+    value: undefined,
+    min: undefined,
+    max: undefined,
+    char: undefined
+  };
+}
+
+function isRangeValue(value: ParameterValue | undefined): value is ParameterRange {
+  return typeof value === "object" && value !== null;
+}
+
+function parseOptionalNumber(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseRequiredNumber(value: string, fallback = 0): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function looksLikeWkt(value: string, prefix: string) {
+  return value.trim().toUpperCase().startsWith(prefix);
+}
+
+function cleanString(value: string | undefined) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function cleanParameterValue(value: ParameterValue | undefined): ParameterValue | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
   }
 
+  const next: ParameterRange = {
+    value: value.value,
+    min: value.min,
+    max: value.max,
+    char: value.char
+  };
+
+  if (
+    next.value === undefined &&
+    next.min === undefined &&
+    next.max === undefined &&
+    next.char === undefined
+  ) {
+    return undefined;
+  }
+
+  return next;
+}
+
+function cleanBaseRef(base: BaseRef): BaseRef {
+  if (typeof base === "string") {
+    return base.trim() || "MODEL_BASE";
+  }
+  return typeof base.mAOD === "number" ? { mAOD: base.mAOD } : "MODEL_BASE";
+}
+
+function cleanDocument(doc: GroundModelDocument): GroundModelDocument {
+  return {
+    schema_version: doc.schema_version || "0.1.0",
+    project: {
+      id: doc.project.id,
+      name: doc.project.name,
+      description: cleanString(doc.project.description),
+      vertical_datum: doc.project.vertical_datum,
+      horizontal_crs: cleanString(doc.project.horizontal_crs),
+      units: doc.project.units ?? "SI"
+    },
+    materials: (doc.materials ?? []).map((material) => {
+      const parameterSets = Object.fromEntries(
+        Object.entries(material.parameter_sets ?? {})
+          .map(([drainage, params]) => [
+            drainage,
+            Object.fromEntries(
+              Object.entries(params)
+                .map(([key, value]) => [key, cleanParameterValue(value)])
+                .filter(([, value]) => value !== undefined)
+            )
+          ])
+          .filter(([, params]) => Object.keys(params).length > 0)
+      );
+
+      return {
+        id: material.id,
+        name: material.name,
+        description: cleanString(material.description),
+        color: cleanString(material.color),
+        hatch: cleanString(material.hatch),
+        parameter_sets: parameterSets
+      };
+    }),
+    ground_models: (doc.ground_models ?? []).map((model) => ({
+      id: model.id,
+      name: model.name,
+      type: model.type ?? "design",
+      dimensionality: model.dimensionality ?? "1D",
+      applicability: model.applicability
+        ? {
+            description: cleanString(model.applicability.description),
+            plan_polygon_wkt: cleanString(model.applicability.plan_polygon_wkt),
+            top_mAOD: model.applicability.top_mAOD,
+            base_mAOD: model.applicability.base_mAOD
+          }
+        : undefined,
+      groundwater_level:
+        model.groundwater_level?.elevation_mAOD === undefined
+          ? undefined
+          : { elevation_mAOD: model.groundwater_level.elevation_mAOD },
+      model_base: {
+        elevation_mAOD: model.model_base.elevation_mAOD,
+        material_ref: model.model_base.material_ref,
+        condition: model.model_base.condition
+      },
+      units: (model.units ?? []).map((unit) => ({
+        id: unit.id,
+        name: cleanString(unit.name),
+        material_ref: unit.material_ref,
+        top_mAOD: unit.top_mAOD,
+        base: cleanBaseRef(unit.base),
+        base_condition: unit.base_condition,
+        geometry_wkt: cleanString(unit.geometry_wkt),
+        top_surface_wkt: cleanString(unit.top_surface_wkt),
+        volume_wkt: cleanString(unit.volume_wkt)
+      })),
+      cases: (model.cases ?? []).map((caseItem) => ({
+        id: caseItem.id,
+        name: caseItem.name,
+        drainage: caseItem.drainage
+      })),
+      section_line_wkt: cleanString(model.section_line_wkt)
+    }))
+  };
+}
+
+function validateDocument(doc: GroundModelDocument): Diagnostic[] {
+  const clean = cleanDocument(doc);
   const diagnostics: Diagnostic[] = [];
-  if (doc.schema_version !== "0.1.0") {
+
+  if (clean.schema_version !== "0.1.0") {
     diagnostics.push({
       code: "GM000",
-      severity: "error",
       path: "schema_version",
-      message: `unsupported schema_version \`${String(doc.schema_version)}\`; expected \`0.1.0\``
+      message: `unsupported schema_version \`${clean.schema_version}\`; expected \`0.1.0\``
     });
   }
 
-  const materials = Array.isArray(doc.materials) ? doc.materials : [];
+  if (!clean.project.id) {
+    diagnostics.push({ code: "REQ", path: "project.id", message: "Project id is required." });
+  }
+  if (!clean.project.name) {
+    diagnostics.push({ code: "REQ", path: "project.name", message: "Project name is required." });
+  }
+
+  const materials = clean.materials ?? [];
+  const models = clean.ground_models ?? [];
   const materialIds = new Set(materials.map((material) => material.id));
 
   materials.forEach((material, materialIndex) => {
     Object.entries(material.parameter_sets ?? {}).forEach(([drainage, params]) => {
-      if (!ALLOWED_DRAINAGE_KEYS.includes(drainage)) {
+      if (!DRAINAGES.includes(drainage as Drainage)) {
         diagnostics.push({
           code: "GM008",
-          severity: "error",
           path: `materials[${materialIndex}].parameter_sets.${drainage}`,
           message: `unsupported drainage key \`${drainage}\``
         });
       }
-
-      Object.keys(params ?? {}).forEach((key) => {
-        if (!ALLOWED_PARAMETER_KEYS.includes(key)) {
+      Object.keys(params).forEach((key) => {
+        if (!(PARAMETER_KEYS as readonly string[]).includes(key)) {
           diagnostics.push({
             code: "GM009",
-            severity: "error",
             path: `materials[${materialIndex}].parameter_sets.${drainage}.${key}`,
             message: `material \`${material.id}\` uses unsupported parameter key \`${key}\``
           });
@@ -304,22 +532,18 @@ function validateDocument(doc: GroundModelDocument | null | undefined): Diagnost
     });
   });
 
-  const groundModels = Array.isArray(doc.ground_models) ? doc.ground_models : [];
-  groundModels.forEach((model, modelIndex) => {
-    if (!materialIds.has(model.model_base?.material_ref)) {
+  models.forEach((model, modelIndex) => {
+    if (!materialIds.has(model.model_base.material_ref)) {
       diagnostics.push({
         code: "GM001",
-        severity: "error",
         path: `ground_models[${modelIndex}].model_base.material_ref`,
-        message: `unknown material_ref \`${model.model_base?.material_ref ?? ""}\``
+        message: `unknown material_ref \`${model.model_base.material_ref}\``
       });
     }
 
-    const applicability = model.applicability;
-    if (applicability?.plan_polygon_wkt && !looksLikeWkt(applicability.plan_polygon_wkt, "POLYGON")) {
+    if (model.applicability?.plan_polygon_wkt && !looksLikeWkt(model.applicability.plan_polygon_wkt, "POLYGON")) {
       diagnostics.push({
         code: "GM006",
-        severity: "error",
         path: `ground_models[${modelIndex}].applicability.plan_polygon_wkt`,
         message: "geometry must be a `POLYGON` WKT"
       });
@@ -328,40 +552,39 @@ function validateDocument(doc: GroundModelDocument | null | undefined): Diagnost
     if (model.section_line_wkt && !looksLikeWkt(model.section_line_wkt, "LINESTRING")) {
       diagnostics.push({
         code: "GM006",
-        severity: "error",
         path: `ground_models[${modelIndex}].section_line_wkt`,
         message: "geometry must be a `LINESTRING` WKT"
       });
     }
 
-    const units = Array.isArray(model.units) ? model.units : [];
+    const units = model.units ?? [];
     const unitIds = new Set(units.map((unit) => unit.id));
     if (unitIds.size !== units.length) {
       diagnostics.push({
         code: "GM007",
-        severity: "error",
         path: `ground_models[${modelIndex}].units`,
         message: `ground model \`${model.id}\` contains duplicate unit ids`
       });
     }
 
     let previousTop: number | null = null;
+    const appTop = model.applicability?.top_mAOD;
+    const appBase = model.applicability?.base_mAOD;
+
     units.forEach((unit, unitIndex) => {
       const unitPath = `ground_models[${modelIndex}].units[${unitIndex}]`;
       if (!materialIds.has(unit.material_ref)) {
         diagnostics.push({
           code: "GM001",
-          severity: "error",
           path: `${unitPath}.material_ref`,
           message: `unknown material_ref \`${unit.material_ref}\``
         });
       }
 
       if ((model.dimensionality ?? "1D") === "1D") {
-        if (typeof unit.top_mAOD !== "number") {
+        if (unit.top_mAOD === undefined) {
           diagnostics.push({
             code: "GM002",
-            severity: "error",
             path: `${unitPath}.top_mAOD`,
             message: "1D units must define top_mAOD"
           });
@@ -369,18 +592,13 @@ function validateDocument(doc: GroundModelDocument | null | undefined): Diagnost
           if (previousTop !== null && unit.top_mAOD >= previousTop) {
             diagnostics.push({
               code: "GM002",
-              severity: "error",
               path: `${unitPath}.top_mAOD`,
               message: "unit top_mAOD must strictly decrease down the stack"
             });
           }
-          if (
-            typeof applicability?.top_mAOD === "number" &&
-            unit.top_mAOD > applicability.top_mAOD
-          ) {
+          if (appTop !== undefined && unit.top_mAOD > appTop) {
             diagnostics.push({
               code: "GM002",
-              severity: "error",
               path: `${unitPath}.top_mAOD`,
               message: "unit top_mAOD is above applicability.top_mAOD"
             });
@@ -388,7 +606,6 @@ function validateDocument(doc: GroundModelDocument | null | undefined): Diagnost
           if (unit.top_mAOD <= model.model_base.elevation_mAOD) {
             diagnostics.push({
               code: "GM002",
-              severity: "error",
               path: `${unitPath}.top_mAOD`,
               message: "unit top_mAOD must be above model_base.elevation_mAOD"
             });
@@ -397,34 +614,25 @@ function validateDocument(doc: GroundModelDocument | null | undefined): Diagnost
         }
       }
 
-      if (
-        typeof unit.base === "object" &&
-        unit.base !== null &&
-        "mAOD" in unit.base &&
-        typeof unit.base.mAOD === "number"
-      ) {
-        if (typeof unit.top_mAOD === "number" && unit.base.mAOD >= unit.top_mAOD) {
+      if (typeof unit.base === "object" && unit.base !== null && "mAOD" in unit.base) {
+        const baseElevation = unit.base.mAOD;
+        if (unit.top_mAOD !== undefined && baseElevation >= unit.top_mAOD) {
           diagnostics.push({
             code: "GM003",
-            severity: "error",
             path: `${unitPath}.base`,
             message: "unit base elevation must lie below top_mAOD"
           });
         }
-        if (unit.base.mAOD < model.model_base.elevation_mAOD) {
+        if (baseElevation < model.model_base.elevation_mAOD) {
           diagnostics.push({
             code: "GM003",
-            severity: "error",
             path: `${unitPath}.base`,
             message: "unit base elevation must not be below model_base.elevation_mAOD"
           });
         }
-      }
-
-      if (typeof unit.base === "string" && unit.base !== "MODEL_BASE" && !unitIds.has(unit.base)) {
+      } else if (typeof unit.base === "string" && unit.base !== "MODEL_BASE" && !unitIds.has(unit.base)) {
         diagnostics.push({
           code: "GM003",
-          severity: "error",
           path: `${unitPath}.base`,
           message: `unknown unit base reference \`${unit.base}\``
         });
@@ -433,7 +641,6 @@ function validateDocument(doc: GroundModelDocument | null | undefined): Diagnost
       if (unit.geometry_wkt && !looksLikeWkt(unit.geometry_wkt, "POLYGON")) {
         diagnostics.push({
           code: "GM006",
-          severity: "error",
           path: `${unitPath}.geometry_wkt`,
           message: "geometry must be a `POLYGON` WKT"
         });
@@ -441,7 +648,6 @@ function validateDocument(doc: GroundModelDocument | null | undefined): Diagnost
       if (unit.top_surface_wkt && !looksLikeWkt(unit.top_surface_wkt, "TIN")) {
         diagnostics.push({
           code: "GM006",
-          severity: "error",
           path: `${unitPath}.top_surface_wkt`,
           message: "geometry must be a `TIN` WKT"
         });
@@ -449,40 +655,36 @@ function validateDocument(doc: GroundModelDocument | null | undefined): Diagnost
       if (unit.volume_wkt && !looksLikeWkt(unit.volume_wkt, "POLYHEDRALSURFACE")) {
         diagnostics.push({
           code: "GM006",
-          severity: "error",
           path: `${unitPath}.volume_wkt`,
           message: "geometry must be a `POLYHEDRALSURFACE` WKT"
         });
       }
     });
 
-    const cases = Array.isArray(model.cases) ? model.cases : [];
-    cases.forEach((caseDefinition, caseIndex) => {
+    (model.cases ?? []).forEach((caseItem, caseIndex) => {
       units.forEach((unit) => {
         const material = materials.find((entry) => entry.id === unit.material_ref);
-        if (material && !material.parameter_sets?.[caseDefinition.drainage]) {
+        if (material && !(material.parameter_sets ?? {})[caseItem.drainage]) {
           diagnostics.push({
             code: "GM004",
-            severity: "error",
             path: `ground_models[${modelIndex}].cases[${caseIndex}].drainage`,
-            message: `case drainage \`${caseDefinition.drainage}\` is missing from material \`${material.id}\``
+            message: `case drainage \`${caseItem.drainage}\` is missing from material \`${material.id}\``
           });
         }
       });
     });
 
-    if (typeof model.groundwater_level?.elevation_mAOD === "number") {
+    if (model.groundwater_level?.elevation_mAOD !== undefined) {
       const modelTop = units.reduce((current, unit) => {
-        return typeof unit.top_mAOD === "number" ? Math.max(current, unit.top_mAOD) : current;
-      }, applicability?.top_mAOD ?? Number.NEGATIVE_INFINITY);
-      const modelBottom = applicability?.base_mAOD ?? model.model_base.elevation_mAOD;
+        return unit.top_mAOD !== undefined ? Math.max(current, unit.top_mAOD) : current;
+      }, appTop ?? Number.NEGATIVE_INFINITY);
+      const modelBottom = appBase ?? model.model_base.elevation_mAOD;
       if (
         model.groundwater_level.elevation_mAOD < modelBottom ||
         model.groundwater_level.elevation_mAOD > modelTop
       ) {
         diagnostics.push({
           code: "GM005",
-          severity: "error",
           path: `ground_models[${modelIndex}].groundwater_level.elevation_mAOD`,
           message: "groundwater level must be within the model vertical extent"
         });
@@ -493,32 +695,25 @@ function validateDocument(doc: GroundModelDocument | null | undefined): Diagnost
   return diagnostics;
 }
 
-function looksLikeWkt(value: string, prefix: string) {
-  return value.trim().toUpperCase().startsWith(prefix);
-}
-
-function parameterToJson(value: number | ParameterRange) {
-  return value;
-}
-
 function groundModelToAgsi(document: GroundModelDocument): AgsiRoot {
-  const materialsById = new Map((document.materials ?? []).map((material) => [material.id, material]));
+  const clean = cleanDocument(document);
+  const materialsById = new Map((clean.materials ?? []).map((material) => [material.id, material]));
 
   return {
     agsSchema: { name: "AGSi", version: "1.0.1" },
-    agsFile: { name: document.project.name, format: "groundmodel" },
+    agsFile: { name: clean.project.name, format: "groundmodel" },
     agsProject: {
-      projectID: document.project.id,
-      projectName: document.project.name,
-      description: document.project.description,
-      verticalDatum: document.project.vertical_datum,
-      horizontalCRS: document.project.horizontal_crs
+      projectID: clean.project.id,
+      projectName: clean.project.name,
+      description: clean.project.description,
+      verticalDatum: clean.project.vertical_datum,
+      horizontalCRS: clean.project.horizontal_crs
     },
-    agsiModel: (document.ground_models ?? []).map((model) => ({
+    agsiModel: (clean.ground_models ?? []).map((model) => ({
       modelID: model.id,
       modelName: model.name,
-      modelType: model.type ?? "design",
-      dimensionality: model.dimensionality ?? "1D",
+      modelType: model.type,
+      dimensionality: model.dimensionality,
       agsiModelBoundary: model.applicability
         ? {
             description: model.applicability.description,
@@ -533,36 +728,28 @@ function groundModelToAgsi(document: GroundModelDocument): AgsiRoot {
         materialRef: model.model_base.material_ref,
         condition: model.model_base.condition
       },
-      elements: (model.units ?? []).map((unit) => {
-        const material = materialsById.get(unit.material_ref);
-        const parameters =
-          material && model.cases
-            ? model.cases.flatMap((caseDefinition) => {
-                const parameterSet = material.parameter_sets?.[caseDefinition.drainage] ?? {};
-                return Object.entries(parameterSet)
-                  .filter(([key]) => Boolean(CODE_MAP[key]))
-                  .map(([key, value]) => ({
-                    codeID: CODE_MAP[key],
-                    caseID: caseDefinition.id,
-                    drainage: caseDefinition.drainage,
-                    value: parameterToJson(value)
-                  }));
-              })
-            : [];
-
-        return {
-          elementID: unit.id,
-          name: unit.name,
-          materialRef: unit.material_ref,
-          top_mAOD: unit.top_mAOD,
-          base: unit.base,
-          baseCondition: unit.base_condition,
-          geometryWKT: unit.geometry_wkt,
-          topSurfaceWKT: unit.top_surface_wkt,
-          volumeWKT: unit.volume_wkt,
-          agsiDataParameterValue: parameters
-        };
-      })
+      elements: (model.units ?? []).map((unit) => ({
+        elementID: unit.id,
+        name: unit.name,
+        materialRef: unit.material_ref,
+        top_mAOD: unit.top_mAOD,
+        base: unit.base,
+        baseCondition: unit.base_condition,
+        geometryWKT: unit.geometry_wkt,
+        topSurfaceWKT: unit.top_surface_wkt,
+        volumeWKT: unit.volume_wkt,
+        agsiDataParameterValue: (model.cases ?? []).flatMap((caseItem) => {
+          const params = materialsById.get(unit.material_ref)?.parameter_sets?.[caseItem.drainage] ?? {};
+          return Object.entries(params)
+            .filter(([key]) => Boolean(CODE_MAP[key]))
+            .map(([key, value]) => ({
+              codeID: CODE_MAP[key],
+              caseID: caseItem.id,
+              drainage: caseItem.drainage,
+              value
+            }));
+        })
+      }))
     }))
   };
 }
@@ -571,64 +758,63 @@ function agsiToGroundModel(agsi: AgsiRoot): GroundModelDocument {
   const materials = new Map<string, Material>();
 
   const groundModels = (agsi.agsiModel ?? []).map((model) => {
-    const cases = new Map<string, string>();
+    const cases = new Map<string, Drainage>();
     const units = (model.elements ?? []).map((element) => {
-      const material = materials.get(element.materialRef) ?? {
-        id: element.materialRef,
-        name: element.materialRef,
-        parameter_sets: {}
-      };
+      if (!materials.has(element.materialRef)) {
+        materials.set(element.materialRef, {
+          id: element.materialRef,
+          name: element.materialRef,
+          description: "",
+          color: "",
+          hatch: "",
+          parameter_sets: {}
+        });
+      }
+      const material = materials.get(element.materialRef)!;
 
       for (const parameter of element.agsiDataParameterValue ?? []) {
         const key = REVERSE_CODE_MAP[parameter.codeID];
         if (!key) continue;
-
-        const drainage = parameter.drainage || "undrained";
         material.parameter_sets ??= {};
-        material.parameter_sets[drainage] ??= {};
-        material.parameter_sets[drainage][key] = parameter.value;
-        materials.set(material.id, material);
-        cases.set(parameter.caseID, drainage);
-      }
-
-      if (!materials.has(material.id)) {
-        materials.set(material.id, material);
+        material.parameter_sets[parameter.drainage] ??= {};
+        material.parameter_sets[parameter.drainage][key] = parameter.value;
+        cases.set(parameter.caseID, (parameter.drainage as Drainage) || "undrained");
       }
 
       return {
         id: element.elementID,
-        name: element.name,
+        name: element.name ?? "",
         material_ref: element.materialRef,
         top_mAOD: element.top_mAOD,
         base: element.base ?? "MODEL_BASE",
-        base_condition: element.baseCondition,
-        geometry_wkt: element.geometryWKT,
-        top_surface_wkt: element.topSurfaceWKT,
-        volume_wkt: element.volumeWKT
+        base_condition: element.baseCondition as Condition | undefined,
+        geometry_wkt: element.geometryWKT ?? "",
+        top_surface_wkt: element.topSurfaceWKT ?? "",
+        volume_wkt: element.volumeWKT ?? ""
       };
     });
 
     return {
       id: model.modelID,
       name: model.modelName,
-      type: model.modelType ?? "design",
-      dimensionality: model.dimensionality ?? "1D",
+      type: (model.modelType as GroundModelType) ?? "design",
+      dimensionality: (model.dimensionality as Dimensionality) ?? "1D",
       applicability: model.agsiModelBoundary
         ? {
-            description: model.agsiModelBoundary.description,
-            plan_polygon_wkt: model.agsiModelBoundary.planPolygonWKT,
+            description: model.agsiModelBoundary.description ?? "",
+            plan_polygon_wkt: model.agsiModelBoundary.planPolygonWKT ?? "",
             top_mAOD: model.agsiModelBoundary.top_mAOD,
             base_mAOD: model.agsiModelBoundary.base_mAOD
           }
         : undefined,
       groundwater_level:
-        typeof model.groundwaterLevel === "number"
-          ? { elevation_mAOD: model.groundwaterLevel }
-          : undefined,
+        model.groundwaterLevel === undefined
+          ? undefined
+          : { elevation_mAOD: model.groundwaterLevel },
       model_base: {
         elevation_mAOD: model.modelBase?.elevation_mAOD ?? 0,
-        material_ref: model.modelBase?.materialRef ?? units[0]?.material_ref ?? "UNKNOWN",
-        condition: model.modelBase?.condition ?? "assumed"
+        material_ref: model.modelBase?.materialRef ?? "",
+        condition: (model.modelBase?.condition as Condition) ?? "assumed"
       },
       units,
       cases: Array.from(cases.entries()).map(([id, drainage]) => ({
@@ -636,30 +822,23 @@ function agsiToGroundModel(agsi: AgsiRoot): GroundModelDocument {
         name: id,
         drainage
       })),
-      section_line_wkt: undefined
+      section_line_wkt: ""
     };
   });
 
   return {
     schema_version: "0.1.0",
     project: {
-      id: agsi.agsProject?.projectID ?? "UNKNOWN",
-      name: agsi.agsProject?.projectName ?? "Untitled AGSi import",
-      description: agsi.agsProject?.description,
-      vertical_datum: agsi.agsProject?.verticalDatum ?? "mAOD",
-      horizontal_crs: agsi.agsProject?.horizontalCRS,
+      id: agsi.agsProject.projectID,
+      name: agsi.agsProject.projectName,
+      description: agsi.agsProject.description ?? "",
+      vertical_datum: (agsi.agsProject.verticalDatum as VerticalDatum) ?? "mAOD",
+      horizontal_crs: agsi.agsProject.horizontalCRS ?? "",
       units: "SI"
     },
     materials: Array.from(materials.values()),
     ground_models: groundModels
   };
-}
-
-function formatGroundModel(document: GroundModelDocument) {
-  return stringify(document, {
-    indent: 2,
-    lineWidth: 0
-  });
 }
 
 function saveFile(name: string, content: string, type: string) {
@@ -672,328 +851,1183 @@ function saveFile(name: string, content: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
-function metricLabel(label: string, value: React.ReactNode) {
+function setInArray<T>(items: T[], index: number, updater: (item: T) => T): T[] {
+  return items.map((item, itemIndex) => (itemIndex === index ? updater(item) : item));
+}
+
+function removeFromArray<T>(items: T[], index: number) {
+  return items.filter((_, itemIndex) => itemIndex !== index);
+}
+
+function ParameterEditor({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value: ParameterValue | undefined;
+  onChange: (value: ParameterValue | undefined) => void;
+}) {
+  const mode = value === undefined ? "none" : isRangeValue(value) ? "range" : "scalar";
+
   return (
-    <div className="metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
+    <div className="parameter-card">
+      <div className="parameter-head">
+        <strong>{label}</strong>
+        <select
+          value={mode}
+          onChange={(event) => {
+            const nextMode = event.target.value;
+            if (nextMode === "none") onChange(undefined);
+            if (nextMode === "scalar") onChange(typeof value === "number" ? value : 0);
+            if (nextMode === "range") onChange(isRangeValue(value) ? value : defaultRange());
+          }}
+        >
+          <option value="none">Off</option>
+          <option value="scalar">Scalar</option>
+          <option value="range">Range</option>
+        </select>
+      </div>
+
+      {mode === "scalar" ? (
+        <input
+          type="number"
+          value={typeof value === "number" ? value : ""}
+          onChange={(event) => onChange(parseOptionalNumber(event.target.value))}
+        />
+      ) : null}
+
+      {mode === "range" ? (
+        <div className="parameter-range-grid">
+          {(["value", "min", "max", "char"] as const).map((field) => (
+            <label key={field}>
+              <span>{field}</span>
+              <input
+                type="number"
+                value={isRangeValue(value) && value[field] !== undefined ? value[field] : ""}
+                onChange={(event) =>
+                  onChange({
+                    ...(isRangeValue(value) ? value : defaultRange()),
+                    [field]: parseOptionalNumber(event.target.value)
+                  })
+                }
+              />
+            </label>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [sourceFormat, setSourceFormat] = useState<SourceFormat>("groundmodel-yaml");
-  const [sourceText, setSourceText] = useState(SAMPLE_YAML);
+  const [documentState, setDocumentState] = useState<GroundModelDocument>(() =>
+    parseYamlDocument(SAMPLE_YAML)
+  );
+  const [importError, setImportError] = useState("");
 
-  const state = useMemo(() => {
-    if (sourceFormat === "groundmodel-yaml") {
-      const parsed = parseGroundModelText(sourceText);
-      const converted = parsed.document ? JSON.stringify(groundModelToAgsi(parsed.document), null, 2) : "";
-      return {
-        document: parsed.document,
-        diagnostics: parsed.diagnostics,
-        conversionTitle: "AGSi JSON",
-        convertedText: converted
-      };
-    }
-
-    const parsed = parseAgsiText(sourceText);
-    const converted = parsed.document ? formatGroundModel(parsed.document) : "";
-    return {
-      document: parsed.document,
-      diagnostics: parsed.diagnostics,
-      conversionTitle: "Groundmodel YAML",
-      convertedText: converted
-    };
-  }, [sourceFormat, sourceText]);
-
-  function replaceWithGroundModelSample() {
-    setSourceFormat("groundmodel-yaml");
-    setSourceText(SAMPLE_YAML);
-  }
-
-  function replaceWithAgsiSample() {
-    const sample = JSON.stringify(
-      groundModelToAgsi(parseGroundModelText(SAMPLE_YAML).document as GroundModelDocument),
-      null,
-      2
-    );
-    setSourceFormat("agsi-json");
-    setSourceText(sample);
-  }
-
-  function formatSource() {
-    if (sourceFormat === "groundmodel-yaml") {
-      const parsed = parseGroundModelText(sourceText);
-      if (parsed.document) {
-        setSourceText(formatGroundModel(parsed.document));
-      }
-      return;
-    }
-
-    try {
-      setSourceText(JSON.stringify(JSON.parse(sourceText), null, 2));
-    } catch {
-      return;
-    }
-  }
-
-  function convertInPlace() {
-    if (!state.convertedText) return;
-    setSourceFormat(sourceFormat === "groundmodel-yaml" ? "agsi-json" : "groundmodel-yaml");
-    setSourceText(state.convertedText);
-  }
+  const cleanedDocument = useMemo(() => cleanDocument(documentState), [documentState]);
+  const diagnostics = useMemo(() => validateDocument(documentState), [documentState]);
+  const yamlText = useMemo(
+    () => stringify(cleanedDocument, { indent: 2, lineWidth: 0 }),
+    [cleanedDocument]
+  );
+  const agsiText = useMemo(
+    () => JSON.stringify(groundModelToAgsi(cleanedDocument), null, 2),
+    [cleanedDocument]
+  );
 
   async function importFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const text = await file.text();
-    setSourceFormat(file.name.endsWith(".json") ? "agsi-json" : "groundmodel-yaml");
-    setSourceText(text);
+
+    try {
+      const text = await file.text();
+      const nextDocument = file.name.endsWith(".json")
+        ? agsiToGroundModel(JSON.parse(text) as AgsiRoot)
+        : parseYamlDocument(text);
+      setDocumentState(nextDocument);
+      setImportError("");
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "Import failed.");
+    }
+
     event.target.value = "";
   }
 
-  const materials = state.document?.materials ?? [];
-  const models = state.document?.ground_models ?? [];
-  const unitCount = models.reduce((count, model) => count + (model.units?.length ?? 0), 0);
+  const materials = documentState.materials ?? [];
+  const groundModels = documentState.ground_models ?? [];
 
   return (
     <main className="app-shell">
-      <section className="hero-panel">
-        <div className="hero-copy">
-          <p className="eyebrow">groundmodel workbench</p>
-          <h1>Viewer, editor, and converter for ground model experience files.</h1>
-          <p className="lede">
-            Edit source directly, inspect the document as structured geology metadata, validate it
-            live, and convert between native YAML and AGSi JSON without leaving the browser.
-          </p>
+      <section className="topbar">
+        <div>
+          <h1>Groundmodel Editor</h1>
+          <p>Full-schema form editor with import and export for YAML and AGSi JSON.</p>
         </div>
-        <div className="hero-metrics">
-          {metricLabel("Format", sourceFormat === "groundmodel-yaml" ? "Groundmodel YAML" : "AGSi JSON")}
-          {metricLabel("Diagnostics", state.diagnostics.length)}
-          {metricLabel("Materials", materials.length)}
-          {metricLabel("Units", unitCount)}
-        </div>
-      </section>
-
-      <section className="toolbar">
-        <div className="chip-group">
-          <button
-            className={sourceFormat === "groundmodel-yaml" ? "chip active" : "chip"}
-            onClick={() => setSourceFormat("groundmodel-yaml")}
-            type="button"
-          >
-            Groundmodel YAML
+        <div className="toolbar">
+          <button onClick={() => setDocumentState(blankDocument())} type="button">
+            New
           </button>
-          <button
-            className={sourceFormat === "agsi-json" ? "chip active" : "chip"}
-            onClick={() => setSourceFormat("agsi-json")}
-            type="button"
-          >
-            AGSi JSON
+          <button onClick={() => setDocumentState(parseYamlDocument(SAMPLE_YAML))} type="button">
+            Load Sample
           </button>
-        </div>
-        <div className="action-group">
-          <button className="action" onClick={replaceWithGroundModelSample} type="button">
-            Sample YAML
-          </button>
-          <button className="action" onClick={replaceWithAgsiSample} type="button">
-            Sample AGSi
-          </button>
-          <button className="action" onClick={() => fileInputRef.current?.click()} type="button">
+          <button onClick={() => fileInputRef.current?.click()} type="button">
             Import
           </button>
-          <button className="action" onClick={formatSource} type="button">
-            Format
+          <button onClick={() => saveFile("groundmodel.yaml", yamlText, "text/yaml")} type="button">
+            Export YAML
           </button>
-          <button className="action accent" onClick={convertInPlace} type="button">
-            Convert In Place
-          </button>
-          <button
-            className="action"
-            onClick={() =>
-              saveFile(
-                sourceFormat === "groundmodel-yaml" ? "groundmodel.yaml" : "agsi.json",
-                sourceText,
-                sourceFormat === "groundmodel-yaml" ? "text/yaml" : "application/json"
-              )
-            }
-            type="button"
-          >
-            Export Source
+          <button onClick={() => saveFile("agsi.json", agsiText, "application/json")} type="button">
+            Export AGSi
           </button>
           <input
-            accept=".yaml,.yml,.json"
-            className="hidden-input"
-            onChange={importFile}
             ref={fileInputRef}
+            className="hidden"
             type="file"
+            accept=".yaml,.yml,.json"
+            onChange={importFile}
           />
         </div>
       </section>
 
-      <section className="workspace">
-        <article className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="panel-kicker">Editor</p>
-              <h2>{sourceFormat === "groundmodel-yaml" ? "Groundmodel source" : "AGSi source"}</h2>
-            </div>
-            <span className="panel-badge">{sourceText.split("\n").length} lines</span>
-          </div>
-          <textarea
-            className="editor"
-            onChange={(event) => setSourceText(event.target.value)}
-            spellCheck={false}
-            value={sourceText}
-          />
-        </article>
+      {importError ? <section className="notice error">{importError}</section> : null}
 
-        <article className="panel">
-          <div className="panel-header">
-            <div>
-              <p className="panel-kicker">Converter</p>
-              <h2>{state.conversionTitle}</h2>
+      <section className="layout">
+        <div className="main-column">
+          <section className="card">
+            <div className="section-head">
+              <h2>Project</h2>
             </div>
-            <button
-              className="link-button"
-              onClick={() =>
-                saveFile(
-                  sourceFormat === "groundmodel-yaml" ? "agsi.json" : "groundmodel.yaml",
-                  state.convertedText,
-                  sourceFormat === "groundmodel-yaml" ? "application/json" : "text/yaml"
-                )
-              }
-              type="button"
-            >
-              Export Conversion
-            </button>
-          </div>
-          <textarea className="editor output" readOnly spellCheck={false} value={state.convertedText} />
-        </article>
-      </section>
+            <div className="form-grid">
+              <label>
+                <span>Schema Version</span>
+                <input
+                  value={documentState.schema_version}
+                  onChange={(event) =>
+                    setDocumentState({ ...documentState, schema_version: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                <span>Project ID</span>
+                <input
+                  value={documentState.project.id}
+                  onChange={(event) =>
+                    setDocumentState({
+                      ...documentState,
+                      project: { ...documentState.project, id: event.target.value }
+                    })
+                  }
+                />
+              </label>
+              <label>
+                <span>Name</span>
+                <input
+                  value={documentState.project.name}
+                  onChange={(event) =>
+                    setDocumentState({
+                      ...documentState,
+                      project: { ...documentState.project, name: event.target.value }
+                    })
+                  }
+                />
+              </label>
+              <label>
+                <span>Vertical Datum</span>
+                <select
+                  value={documentState.project.vertical_datum}
+                  onChange={(event) =>
+                    setDocumentState({
+                      ...documentState,
+                      project: {
+                        ...documentState.project,
+                        vertical_datum: event.target.value as VerticalDatum
+                      }
+                    })
+                  }
+                >
+                  {VERTICAL_DATUMS.map((datum) => (
+                    <option key={datum} value={datum}>
+                      {datum}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Units</span>
+                <select
+                  value={documentState.project.units ?? "SI"}
+                  onChange={(event) =>
+                    setDocumentState({
+                      ...documentState,
+                      project: {
+                        ...documentState.project,
+                        units: event.target.value as UnitSystem
+                      }
+                    })
+                  }
+                >
+                  {UNIT_SYSTEMS.map((unitSystem) => (
+                    <option key={unitSystem} value={unitSystem}>
+                      {unitSystem}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="full-width">
+                <span>Horizontal CRS</span>
+                <input
+                  value={documentState.project.horizontal_crs ?? ""}
+                  onChange={(event) =>
+                    setDocumentState({
+                      ...documentState,
+                      project: { ...documentState.project, horizontal_crs: event.target.value }
+                    })
+                  }
+                />
+              </label>
+              <label className="full-width">
+                <span>Description</span>
+                <textarea
+                  rows={3}
+                  value={documentState.project.description ?? ""}
+                  onChange={(event) =>
+                    setDocumentState({
+                      ...documentState,
+                      project: { ...documentState.project, description: event.target.value }
+                    })
+                  }
+                />
+              </label>
+            </div>
+          </section>
 
-      <section className="inspector-grid">
-        <article className="panel diagnostics-panel">
-          <div className="panel-header">
-            <div>
-              <p className="panel-kicker">Validation</p>
-              <h2>Diagnostics</h2>
+          <section className="card">
+            <div className="section-head">
+              <h2>Materials</h2>
+              <button
+                type="button"
+                onClick={() =>
+                  setDocumentState({
+                    ...documentState,
+                    materials: [...materials, defaultMaterial()]
+                  })
+                }
+              >
+                Add Material
+              </button>
             </div>
-            <span className="panel-badge">{state.diagnostics.length}</span>
-          </div>
-          <div className="diagnostic-list">
-            {state.diagnostics.length === 0 ? (
-              <div className="empty-state">No validation errors. The document is structurally usable.</div>
-            ) : (
-              state.diagnostics.map((diagnostic, index) => (
-                <div className={`diagnostic ${diagnostic.severity}`} key={`${diagnostic.code}-${index}`}>
-                  <div className="diagnostic-topline">
-                    <strong>{diagnostic.code}</strong>
-                    <span>{diagnostic.path}</span>
+
+            <div className="stack">
+              {materials.map((material, materialIndex) => (
+                <div className="subcard" key={material.id || materialIndex}>
+                  <div className="subhead">
+                    <strong>{material.name || "Untitled Material"}</strong>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDocumentState({
+                          ...documentState,
+                          materials: removeFromArray(materials, materialIndex)
+                        })
+                      }
+                    >
+                      Remove
+                    </button>
                   </div>
-                  <p>{diagnostic.message}</p>
-                </div>
-              ))
-            )}
-          </div>
-        </article>
 
-        <article className="panel viewer-panel">
-          <div className="panel-header">
-            <div>
-              <p className="panel-kicker">Viewer</p>
-              <h2>Structured document</h2>
-            </div>
-            <span className="panel-badge">{models.length} models</span>
-          </div>
-          {!state.document ? (
-            <div className="empty-state">Fix the source parse error to inspect the document.</div>
-          ) : (
-            <div className="viewer-stack">
-              <section className="viewer-card">
-                <h3>{state.document.project.name}</h3>
-                <p>
-                  {state.document.project.id} · {state.document.project.vertical_datum}
-                  {state.document.project.horizontal_crs ? ` · ${state.document.project.horizontal_crs}` : ""}
-                </p>
-                {state.document.project.description ? <p>{state.document.project.description}</p> : null}
-              </section>
+                  <div className="form-grid">
+                    <label>
+                      <span>ID</span>
+                      <input
+                        value={material.id}
+                        onChange={(event) =>
+                          setDocumentState({
+                            ...documentState,
+                            materials: setInArray(materials, materialIndex, (item) => ({
+                              ...item,
+                              id: event.target.value
+                            }))
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Name</span>
+                      <input
+                        value={material.name}
+                        onChange={(event) =>
+                          setDocumentState({
+                            ...documentState,
+                            materials: setInArray(materials, materialIndex, (item) => ({
+                              ...item,
+                              name: event.target.value
+                            }))
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Color</span>
+                      <input
+                        value={material.color ?? ""}
+                        onChange={(event) =>
+                          setDocumentState({
+                            ...documentState,
+                            materials: setInArray(materials, materialIndex, (item) => ({
+                              ...item,
+                              color: event.target.value
+                            }))
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Hatch</span>
+                      <input
+                        value={material.hatch ?? ""}
+                        onChange={(event) =>
+                          setDocumentState({
+                            ...documentState,
+                            materials: setInArray(materials, materialIndex, (item) => ({
+                              ...item,
+                              hatch: event.target.value
+                            }))
+                          })
+                        }
+                      />
+                    </label>
+                    <label className="full-width">
+                      <span>Description</span>
+                      <textarea
+                        rows={2}
+                        value={material.description ?? ""}
+                        onChange={(event) =>
+                          setDocumentState({
+                            ...documentState,
+                            materials: setInArray(materials, materialIndex, (item) => ({
+                              ...item,
+                              description: event.target.value
+                            }))
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
 
-              <section className="viewer-card">
-                <div className="card-header">
-                  <h3>Materials</h3>
-                  <span>{materials.length}</span>
-                </div>
-                <div className="material-list">
-                  {materials.map((material) => (
-                    <div className="material-row" key={material.id}>
-                      <div className="material-swatch" style={{ background: material.color ?? "#4e5d6c" }} />
-                      <div>
-                        <strong>{material.name}</strong>
-                        <p>{material.id}</p>
+                  {DRAINAGES.map((drainage) => (
+                    <div className="subsection" key={drainage}>
+                      <div className="section-head small">
+                        <h3>{drainage} parameters</h3>
                       </div>
-                      <span>{Object.keys(material.parameter_sets ?? {}).length} drainage sets</span>
+                      <div className="parameter-grid">
+                        {PARAMETER_KEYS.map((parameterKey) => (
+                          <ParameterEditor
+                            key={parameterKey}
+                            label={parameterKey}
+                            value={material.parameter_sets?.[drainage]?.[parameterKey]}
+                            onChange={(value) =>
+                              setDocumentState({
+                                ...documentState,
+                                materials: setInArray(materials, materialIndex, (item) => ({
+                                  ...item,
+                                  parameter_sets: {
+                                    ...(item.parameter_sets ?? {}),
+                                    [drainage]: {
+                                      ...(item.parameter_sets?.[drainage] ?? {}),
+                                      ...(value === undefined
+                                        ? Object.fromEntries(
+                                            Object.entries(item.parameter_sets?.[drainage] ?? {}).filter(
+                                              ([key]) => key !== parameterKey
+                                            )
+                                          )
+                                        : { [parameterKey]: value })
+                                    }
+                                  }
+                                }))
+                              })
+                            }
+                          />
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
-              </section>
-
-              {models.map((model) => (
-                <section className="viewer-card" key={model.id}>
-                  <div className="card-header">
-                    <div>
-                      <h3>{model.name}</h3>
-                      <p>
-                        {model.id} · {model.type ?? "design"} · {model.dimensionality ?? "1D"}
-                      </p>
-                    </div>
-                    <span>{model.units?.length ?? 0} units</span>
-                  </div>
-                  <div className="detail-grid">
-                    <div>
-                      <strong>Model base</strong>
-                      <p>
-                        {model.model_base.material_ref} at {model.model_base.elevation_mAOD} mAOD
-                      </p>
-                    </div>
-                    <div>
-                      <strong>Groundwater</strong>
-                      <p>
-                        {typeof model.groundwater_level?.elevation_mAOD === "number"
-                          ? `${model.groundwater_level.elevation_mAOD} mAOD`
-                          : "Not set"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="unit-list">
-                    {(model.units ?? []).map((unit) => (
-                      <div className="unit-row" key={unit.id}>
-                        <div>
-                          <strong>{unit.name ?? unit.id}</strong>
-                          <p>
-                            {unit.id} · {unit.material_ref}
-                          </p>
-                        </div>
-                        <span>
-                          Top {typeof unit.top_mAOD === "number" ? `${unit.top_mAOD} mAOD` : "n/a"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="case-list">
-                    {(model.cases ?? []).map((caseDefinition) => (
-                      <span className="case-pill" key={caseDefinition.id}>
-                        {caseDefinition.name} · {caseDefinition.drainage}
-                      </span>
-                    ))}
-                  </div>
-                </section>
               ))}
             </div>
-          )}
-        </article>
+          </section>
+
+          <section className="card">
+            <div className="section-head">
+              <h2>Ground Models</h2>
+              <button
+                type="button"
+                onClick={() =>
+                  setDocumentState({
+                    ...documentState,
+                    ground_models: [...groundModels, defaultModel(materials[0]?.id ?? "")]
+                  })
+                }
+              >
+                Add Model
+              </button>
+            </div>
+
+            <div className="stack">
+              {groundModels.map((model, modelIndex) => (
+                <div className="subcard" key={model.id || modelIndex}>
+                  <div className="subhead">
+                    <strong>{model.name || "Untitled Model"}</strong>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setDocumentState({
+                          ...documentState,
+                          ground_models: removeFromArray(groundModels, modelIndex)
+                        })
+                      }
+                    >
+                      Remove
+                    </button>
+                  </div>
+
+                  <div className="form-grid">
+                    <label>
+                      <span>ID</span>
+                      <input
+                        value={model.id}
+                        onChange={(event) =>
+                          setDocumentState({
+                            ...documentState,
+                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                              ...item,
+                              id: event.target.value
+                            }))
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Name</span>
+                      <input
+                        value={model.name}
+                        onChange={(event) =>
+                          setDocumentState({
+                            ...documentState,
+                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                              ...item,
+                              name: event.target.value
+                            }))
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Type</span>
+                      <select
+                        value={model.type ?? "design"}
+                        onChange={(event) =>
+                          setDocumentState({
+                            ...documentState,
+                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                              ...item,
+                              type: event.target.value as GroundModelType
+                            }))
+                          })
+                        }
+                      >
+                        {MODEL_TYPES.map((modelType) => (
+                          <option key={modelType} value={modelType}>
+                            {modelType}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Dimensionality</span>
+                      <select
+                        value={model.dimensionality ?? "1D"}
+                        onChange={(event) =>
+                          setDocumentState({
+                            ...documentState,
+                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                              ...item,
+                              dimensionality: event.target.value as Dimensionality
+                            }))
+                          })
+                        }
+                      >
+                        {DIMENSIONALITIES.map((dimensionality) => (
+                          <option key={dimensionality} value={dimensionality}>
+                            {dimensionality}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Model Base Elevation</span>
+                      <input
+                        type="number"
+                        value={model.model_base.elevation_mAOD}
+                        onChange={(event) =>
+                          setDocumentState({
+                            ...documentState,
+                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                              ...item,
+                              model_base: {
+                                ...item.model_base,
+                                elevation_mAOD: parseRequiredNumber(event.target.value)
+                              }
+                            }))
+                          })
+                        }
+                      />
+                    </label>
+                    <label>
+                      <span>Model Base Material</span>
+                      <select
+                        value={model.model_base.material_ref}
+                        onChange={(event) =>
+                          setDocumentState({
+                            ...documentState,
+                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                              ...item,
+                              model_base: {
+                                ...item.model_base,
+                                material_ref: event.target.value
+                              }
+                            }))
+                          })
+                        }
+                      >
+                        <option value="">Select material</option>
+                        {materials.map((material) => (
+                          <option key={material.id} value={material.id}>
+                            {material.id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Model Base Condition</span>
+                      <select
+                        value={model.model_base.condition}
+                        onChange={(event) =>
+                          setDocumentState({
+                            ...documentState,
+                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                              ...item,
+                              model_base: {
+                                ...item.model_base,
+                                condition: event.target.value as Condition
+                              }
+                            }))
+                          })
+                        }
+                      >
+                        {CONDITIONS.map((condition) => (
+                          <option key={condition} value={condition}>
+                            {condition}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="full-width">
+                      <span>Section Line WKT</span>
+                      <textarea
+                        rows={2}
+                        value={model.section_line_wkt ?? ""}
+                        onChange={(event) =>
+                          setDocumentState({
+                            ...documentState,
+                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                              ...item,
+                              section_line_wkt: event.target.value
+                            }))
+                          })
+                        }
+                      />
+                    </label>
+                  </div>
+
+                  <div className="subsection">
+                    <div className="section-head small">
+                      <h3>Applicability</h3>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDocumentState({
+                            ...documentState,
+                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                              ...item,
+                              applicability: item.applicability
+                                ? undefined
+                                : {
+                                    description: "",
+                                    plan_polygon_wkt: "",
+                                    top_mAOD: undefined,
+                                    base_mAOD: undefined
+                                  }
+                            }))
+                          })
+                        }
+                      >
+                        {model.applicability ? "Remove Applicability" : "Add Applicability"}
+                      </button>
+                    </div>
+                    {model.applicability ? (
+                      <div className="form-grid">
+                        <label className="full-width">
+                          <span>Description</span>
+                          <textarea
+                            rows={2}
+                            value={model.applicability.description ?? ""}
+                            onChange={(event) =>
+                              setDocumentState({
+                                ...documentState,
+                                ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                                  ...item,
+                                  applicability: {
+                                    ...item.applicability!,
+                                    description: event.target.value
+                                  }
+                                }))
+                              })
+                            }
+                          />
+                        </label>
+                        <label className="full-width">
+                          <span>Plan Polygon WKT</span>
+                          <textarea
+                            rows={2}
+                            value={model.applicability.plan_polygon_wkt ?? ""}
+                            onChange={(event) =>
+                              setDocumentState({
+                                ...documentState,
+                                ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                                  ...item,
+                                  applicability: {
+                                    ...item.applicability!,
+                                    plan_polygon_wkt: event.target.value
+                                  }
+                                }))
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          <span>Top mAOD</span>
+                          <input
+                            type="number"
+                            value={model.applicability.top_mAOD ?? ""}
+                            onChange={(event) =>
+                              setDocumentState({
+                                ...documentState,
+                                ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                                  ...item,
+                                  applicability: {
+                                    ...item.applicability!,
+                                    top_mAOD: parseOptionalNumber(event.target.value)
+                                  }
+                                }))
+                              })
+                            }
+                          />
+                        </label>
+                        <label>
+                          <span>Base mAOD</span>
+                          <input
+                            type="number"
+                            value={model.applicability.base_mAOD ?? ""}
+                            onChange={(event) =>
+                              setDocumentState({
+                                ...documentState,
+                                ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                                  ...item,
+                                  applicability: {
+                                    ...item.applicability!,
+                                    base_mAOD: parseOptionalNumber(event.target.value)
+                                  }
+                                }))
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="subsection">
+                    <div className="section-head small">
+                      <h3>Groundwater</h3>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDocumentState({
+                            ...documentState,
+                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                              ...item,
+                              groundwater_level: item.groundwater_level
+                                ? undefined
+                                : { elevation_mAOD: 0 }
+                            }))
+                          })
+                        }
+                      >
+                        {model.groundwater_level ? "Remove Groundwater" : "Add Groundwater"}
+                      </button>
+                    </div>
+                    {model.groundwater_level ? (
+                      <div className="form-grid">
+                        <label>
+                          <span>Elevation mAOD</span>
+                          <input
+                            type="number"
+                            value={model.groundwater_level.elevation_mAOD}
+                            onChange={(event) =>
+                              setDocumentState({
+                                ...documentState,
+                                ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                                  ...item,
+                                  groundwater_level: {
+                                    elevation_mAOD: parseRequiredNumber(event.target.value)
+                                  }
+                                }))
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="subsection">
+                    <div className="section-head small">
+                      <h3>Cases</h3>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDocumentState({
+                            ...documentState,
+                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                              ...item,
+                              cases: [...(item.cases ?? []), defaultCase()]
+                            }))
+                          })
+                        }
+                      >
+                        Add Case
+                      </button>
+                    </div>
+                    <div className="stack compact">
+                      {(model.cases ?? []).map((caseItem, caseIndex) => (
+                        <div className="mini-grid case-grid" key={caseItem.id || caseIndex}>
+                          <input
+                            placeholder="Case ID"
+                            value={caseItem.id}
+                            onChange={(event) =>
+                              setDocumentState({
+                                ...documentState,
+                                ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                  ...modelItem,
+                                  cases: setInArray(modelItem.cases ?? [], caseIndex, (entry) => ({
+                                    ...entry,
+                                    id: event.target.value
+                                  }))
+                                }))
+                              })
+                            }
+                          />
+                          <input
+                            placeholder="Case name"
+                            value={caseItem.name}
+                            onChange={(event) =>
+                              setDocumentState({
+                                ...documentState,
+                                ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                  ...modelItem,
+                                  cases: setInArray(modelItem.cases ?? [], caseIndex, (entry) => ({
+                                    ...entry,
+                                    name: event.target.value
+                                  }))
+                                }))
+                              })
+                            }
+                          />
+                          <select
+                            value={caseItem.drainage}
+                            onChange={(event) =>
+                              setDocumentState({
+                                ...documentState,
+                                ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                  ...modelItem,
+                                  cases: setInArray(modelItem.cases ?? [], caseIndex, (entry) => ({
+                                    ...entry,
+                                    drainage: event.target.value as Drainage
+                                  }))
+                                }))
+                              })
+                            }
+                          >
+                            {DRAINAGES.map((drainage) => (
+                              <option key={drainage} value={drainage}>
+                                {drainage}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDocumentState({
+                                ...documentState,
+                                ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                  ...modelItem,
+                                  cases: removeFromArray(modelItem.cases ?? [], caseIndex)
+                                }))
+                              })
+                            }
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="subsection">
+                    <div className="section-head small">
+                      <h3>Units</h3>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDocumentState({
+                            ...documentState,
+                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                              ...item,
+                              units: [...(item.units ?? []), defaultUnit(materials[0]?.id ?? "")]
+                            }))
+                          })
+                        }
+                      >
+                        Add Unit
+                      </button>
+                    </div>
+
+                    <div className="stack">
+                      {(model.units ?? []).map((unit, unitIndex) => {
+                        const baseMode =
+                          typeof unit.base === "object"
+                            ? "elevation"
+                            : unit.base === "MODEL_BASE"
+                              ? "model-base"
+                              : "unit-ref";
+
+                        return (
+                          <div className="subcard inset" key={unit.id || unitIndex}>
+                            <div className="subhead">
+                              <strong>{unit.name || unit.id || "Untitled Unit"}</strong>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setDocumentState({
+                                    ...documentState,
+                                    ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                      ...modelItem,
+                                      units: removeFromArray(modelItem.units ?? [], unitIndex)
+                                    }))
+                                  })
+                                }
+                              >
+                                Remove
+                              </button>
+                            </div>
+
+                            <div className="form-grid">
+                              <label>
+                                <span>ID</span>
+                                <input
+                                  value={unit.id}
+                                  onChange={(event) =>
+                                    setDocumentState({
+                                      ...documentState,
+                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                        ...modelItem,
+                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                          ...unitItem,
+                                          id: event.target.value
+                                        }))
+                                      }))
+                                    })
+                                  }
+                                />
+                              </label>
+                              <label>
+                                <span>Name</span>
+                                <input
+                                  value={unit.name ?? ""}
+                                  onChange={(event) =>
+                                    setDocumentState({
+                                      ...documentState,
+                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                        ...modelItem,
+                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                          ...unitItem,
+                                          name: event.target.value
+                                        }))
+                                      }))
+                                    })
+                                  }
+                                />
+                              </label>
+                              <label>
+                                <span>Material</span>
+                                <select
+                                  value={unit.material_ref}
+                                  onChange={(event) =>
+                                    setDocumentState({
+                                      ...documentState,
+                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                        ...modelItem,
+                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                          ...unitItem,
+                                          material_ref: event.target.value
+                                        }))
+                                      }))
+                                    })
+                                  }
+                                >
+                                  <option value="">Select material</option>
+                                  {materials.map((material) => (
+                                    <option key={material.id} value={material.id}>
+                                      {material.id}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <label>
+                                <span>Top mAOD</span>
+                                <input
+                                  type="number"
+                                  value={unit.top_mAOD ?? ""}
+                                  onChange={(event) =>
+                                    setDocumentState({
+                                      ...documentState,
+                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                        ...modelItem,
+                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                          ...unitItem,
+                                          top_mAOD: parseOptionalNumber(event.target.value)
+                                        }))
+                                      }))
+                                    })
+                                  }
+                                />
+                              </label>
+                              <label>
+                                <span>Base Mode</span>
+                                <select
+                                  value={baseMode}
+                                  onChange={(event) =>
+                                    setDocumentState({
+                                      ...documentState,
+                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                        ...modelItem,
+                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                          ...unitItem,
+                                          base:
+                                            event.target.value === "model-base"
+                                              ? "MODEL_BASE"
+                                              : event.target.value === "unit-ref"
+                                                ? ""
+                                                : { mAOD: 0 }
+                                        }))
+                                      }))
+                                    })
+                                  }
+                                >
+                                  <option value="model-base">MODEL_BASE</option>
+                                  <option value="unit-ref">Unit reference</option>
+                                  <option value="elevation">Elevation</option>
+                                </select>
+                              </label>
+                              <label>
+                                <span>Base Condition</span>
+                                <select
+                                  value={unit.base_condition ?? ""}
+                                  onChange={(event) =>
+                                    setDocumentState({
+                                      ...documentState,
+                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                        ...modelItem,
+                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                          ...unitItem,
+                                          base_condition: event.target.value
+                                            ? (event.target.value as Condition)
+                                            : undefined
+                                        }))
+                                      }))
+                                    })
+                                  }
+                                >
+                                  <option value="">None</option>
+                                  {CONDITIONS.map((condition) => (
+                                    <option key={condition} value={condition}>
+                                      {condition}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+
+                              {baseMode === "unit-ref" ? (
+                                <label className="full-width">
+                                  <span>Base Unit ID</span>
+                                  <input
+                                    value={typeof unit.base === "string" && unit.base !== "MODEL_BASE" ? unit.base : ""}
+                                    onChange={(event) =>
+                                      setDocumentState({
+                                        ...documentState,
+                                        ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                          ...modelItem,
+                                          units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                            ...unitItem,
+                                            base: event.target.value
+                                          }))
+                                        }))
+                                      })
+                                    }
+                                  />
+                                </label>
+                              ) : null}
+
+                              {baseMode === "elevation" ? (
+                                <label className="full-width">
+                                  <span>Base Elevation mAOD</span>
+                                  <input
+                                    type="number"
+                                    value={typeof unit.base === "object" ? unit.base.mAOD : ""}
+                                    onChange={(event) =>
+                                      setDocumentState({
+                                        ...documentState,
+                                        ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                          ...modelItem,
+                                          units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                            ...unitItem,
+                                            base: {
+                                              mAOD: parseRequiredNumber(event.target.value)
+                                            }
+                                          }))
+                                        }))
+                                      })
+                                    }
+                                  />
+                                </label>
+                              ) : null}
+
+                              <label className="full-width">
+                                <span>Geometry WKT</span>
+                                <textarea
+                                  rows={2}
+                                  value={unit.geometry_wkt ?? ""}
+                                  onChange={(event) =>
+                                    setDocumentState({
+                                      ...documentState,
+                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                        ...modelItem,
+                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                          ...unitItem,
+                                          geometry_wkt: event.target.value
+                                        }))
+                                      }))
+                                    })
+                                  }
+                                />
+                              </label>
+                              <label className="full-width">
+                                <span>Top Surface WKT</span>
+                                <textarea
+                                  rows={2}
+                                  value={unit.top_surface_wkt ?? ""}
+                                  onChange={(event) =>
+                                    setDocumentState({
+                                      ...documentState,
+                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                        ...modelItem,
+                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                          ...unitItem,
+                                          top_surface_wkt: event.target.value
+                                        }))
+                                      }))
+                                    })
+                                  }
+                                />
+                              </label>
+                              <label className="full-width">
+                                <span>Volume WKT</span>
+                                <textarea
+                                  rows={2}
+                                  value={unit.volume_wkt ?? ""}
+                                  onChange={(event) =>
+                                    setDocumentState({
+                                      ...documentState,
+                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                        ...modelItem,
+                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                          ...unitItem,
+                                          volume_wkt: event.target.value
+                                        }))
+                                      }))
+                                    })
+                                  }
+                                />
+                              </label>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+
+        <aside className="side-column">
+          <section className="card">
+            <div className="section-head">
+              <h2>Validation</h2>
+            </div>
+            {diagnostics.length === 0 ? (
+              <p className="clean">No current validation issues.</p>
+            ) : (
+              <div className="stack compact">
+                {diagnostics.map((diagnostic, index) => (
+                  <div className="notice" key={`${diagnostic.code}-${index}`}>
+                    <strong>{diagnostic.code}</strong>
+                    <span>{diagnostic.path}</span>
+                    <p>{diagnostic.message}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="card">
+            <div className="section-head">
+              <h2>YAML Preview</h2>
+            </div>
+            <textarea readOnly rows={18} value={yamlText} />
+          </section>
+
+          <section className="card">
+            <div className="section-head">
+              <h2>AGSi Preview</h2>
+            </div>
+            <textarea readOnly rows={18} value={agsiText} />
+          </section>
+        </aside>
       </section>
     </main>
   );
