@@ -1,5 +1,8 @@
-import React, { useMemo, useRef, useState } from "react";
+import Editor, { loader } from "@monaco-editor/react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
+import schema from "../../schema/groundmodel-0.1.0.json";
+import { configureMonacoYaml } from "monaco-yaml";
 import { parse, stringify } from "yaml";
 import "./styles.css";
 
@@ -214,6 +217,51 @@ const CODE_MAP: Record<string, string> = {
 const REVERSE_CODE_MAP = Object.fromEntries(
   Object.entries(CODE_MAP).map(([key, value]) => [value, key])
 );
+
+type WorkspaceTab = "setup" | "materials" | "models" | "review" | "yaml";
+type ModelWorkspaceTab = "overview" | "geometry" | "hydro" | "cases" | "units";
+
+const WORKSPACE_TABS: { id: WorkspaceTab; label: string; description: string }[] = [
+  { id: "setup", label: "Setup", description: "Project details and workflow entry point." },
+  { id: "materials", label: "Materials", description: "Build the material library once." },
+  { id: "models", label: "Models", description: "Assemble ground models, units, and cases." },
+  { id: "review", label: "Review", description: "Validation, YAML preview, and AGSi output." },
+  { id: "yaml", label: "YAML", description: "Advanced editing with schema-aware autocomplete." }
+];
+
+const YAML_SCHEMA_URI = "https://groundmodel.dev/schema/groundmodel-0.1.0.json";
+const MODEL_WORKSPACE_TABS: { id: ModelWorkspaceTab; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "geometry", label: "Geometry" },
+  { id: "hydro", label: "Hydro" },
+  { id: "cases", label: "Cases" },
+  { id: "units", label: "Units" }
+];
+
+let monacoYamlConfigured = false;
+
+function ensureMonacoYaml() {
+  if (monacoYamlConfigured) return;
+
+  loader.init().then((monaco) => {
+    if (monacoYamlConfigured) return;
+    configureMonacoYaml(monaco, {
+      enableSchemaRequest: false,
+      validate: true,
+      hover: true,
+      completion: true,
+      format: true,
+      schemas: [
+        {
+          uri: YAML_SCHEMA_URI,
+          fileMatch: ["*", "*.yaml", "*.yml"],
+          schema: schema as Record<string, unknown>
+        }
+      ]
+    });
+    monacoYamlConfigured = true;
+  });
+}
 
 const SAMPLE_YAML = `schema_version: "0.1.0"
 project:
@@ -922,10 +970,16 @@ function ParameterEditor({
 
 function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("setup");
+  const [selectedModelIndex, setSelectedModelIndex] = useState(0);
+  const [modelTab, setModelTab] = useState<ModelWorkspaceTab>("overview");
   const [documentState, setDocumentState] = useState<GroundModelDocument>(() =>
     parseYamlDocument(SAMPLE_YAML)
   );
   const [importError, setImportError] = useState("");
+  const [yamlDraft, setYamlDraft] = useState(SAMPLE_YAML);
+  const [yamlError, setYamlError] = useState("");
+  const [yamlDirty, setYamlDirty] = useState(false);
 
   const cleanedDocument = useMemo(() => cleanDocument(documentState), [documentState]);
   const diagnostics = useMemo(() => validateDocument(documentState), [documentState]);
@@ -938,6 +992,16 @@ function App() {
     [cleanedDocument]
   );
 
+  useEffect(() => {
+    ensureMonacoYaml();
+  }, []);
+
+  useEffect(() => {
+    if (!yamlDirty) {
+      setYamlDraft(yamlText);
+    }
+  }, [yamlDirty, yamlText]);
+
   async function importFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -948,7 +1012,12 @@ function App() {
         ? agsiToGroundModel(JSON.parse(text) as AgsiRoot)
         : parseYamlDocument(text);
       setDocumentState(nextDocument);
+      setSelectedModelIndex(0);
+      setModelTab("overview");
       setImportError("");
+      setYamlError("");
+      setYamlDirty(false);
+      setActiveTab("setup");
     } catch (error) {
       setImportError(error instanceof Error ? error.message : "Import failed.");
     }
@@ -958,19 +1027,59 @@ function App() {
 
   const materials = documentState.materials ?? [];
   const groundModels = documentState.ground_models ?? [];
+  const safeSelectedModelIndex =
+    groundModels.length === 0 ? -1 : Math.min(selectedModelIndex, groundModels.length - 1);
+  const selectedModel = safeSelectedModelIndex >= 0 ? groundModels[safeSelectedModelIndex] : undefined;
+  const unitCount = groundModels.reduce((total, model) => total + (model.units?.length ?? 0), 0);
+  const caseCount = groundModels.reduce((total, model) => total + (model.cases?.length ?? 0), 0);
+  const validationTone = diagnostics.length === 0 ? "ok" : diagnostics.length < 4 ? "warn" : "bad";
+
+  function applyYamlDraft() {
+    try {
+      const nextDocument = parseYamlDocument(yamlDraft);
+      setDocumentState(nextDocument);
+      setYamlDirty(false);
+      setYamlError("");
+      setImportError("");
+    } catch (error) {
+      setYamlError(error instanceof Error ? error.message : "YAML update failed.");
+    }
+  }
+
+  function resetYamlDraft() {
+    setYamlDraft(yamlText);
+    setYamlDirty(false);
+    setYamlError("");
+  }
 
   return (
     <main className="app-shell">
-      <section className="topbar">
+      <section className="topbar hero">
         <div>
           <h1>Groundmodel Editor</h1>
-          <p>Full-schema form editor with import and export for YAML and AGSi JSON.</p>
+          <p>
+            Guided workflow for non-technical users, with an advanced YAML workspace for power users.
+          </p>
         </div>
         <div className="toolbar">
-          <button onClick={() => setDocumentState(blankDocument())} type="button">
+          <button
+            onClick={() => {
+              setDocumentState(blankDocument());
+              setSelectedModelIndex(0);
+              setModelTab("overview");
+            }}
+            type="button"
+          >
             New
           </button>
-          <button onClick={() => setDocumentState(parseYamlDocument(SAMPLE_YAML))} type="button">
+          <button
+            onClick={() => {
+              setDocumentState(parseYamlDocument(SAMPLE_YAML));
+              setSelectedModelIndex(0);
+              setModelTab("overview");
+            }}
+            type="button"
+          >
             Load Sample
           </button>
           <button onClick={() => fileInputRef.current?.click()} type="button">
@@ -993,9 +1102,92 @@ function App() {
       </section>
 
       {importError ? <section className="notice error">{importError}</section> : null}
+      <section className="workspace-tabs" aria-label="Editor modes">
+        {WORKSPACE_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            className={activeTab === tab.id ? "tab-button active" : "tab-button"}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+          >
+            <strong>{tab.label}</strong>
+            <span>{tab.description}</span>
+          </button>
+        ))}
+      </section>
 
-      <section className="layout">
-        <div className="main-column">
+      {activeTab === "setup" ? (
+        <section className="stack">
+          <section className="overview-grid">
+            <article className="card workflow-card">
+              <div className="section-head">
+                <h2>Project Setup</h2>
+                <span className={`status-pill ${validationTone}`}>
+                  {diagnostics.length === 0
+                    ? "Ready"
+                    : `${diagnostics.length} issue${diagnostics.length === 1 ? "" : "s"}`}
+                </span>
+              </div>
+              <p className="section-copy">
+                Start with the project metadata, then build a material library and assign those
+                materials into one or more ground models.
+              </p>
+              <div className="metric-grid">
+                <div className="metric-card">
+                  <strong>{materials.length}</strong>
+                  <span>Materials</span>
+                </div>
+                <div className="metric-card">
+                  <strong>{groundModels.length}</strong>
+                  <span>Models</span>
+                </div>
+                <div className="metric-card">
+                  <strong>{unitCount}</strong>
+                  <span>Units</span>
+                </div>
+                <div className="metric-card">
+                  <strong>{caseCount}</strong>
+                  <span>Cases</span>
+                </div>
+              </div>
+              <div className="shortcut-row">
+                <button type="button" onClick={() => setActiveTab("materials")}>
+                  Edit Materials
+                </button>
+                <button type="button" onClick={() => setActiveTab("models")}>
+                  Edit Models
+                </button>
+                <button type="button" onClick={() => setActiveTab("yaml")}>
+                  Open YAML
+                </button>
+              </div>
+            </article>
+
+            <article className="card workflow-card accent-card">
+              <div className="section-head">
+                <h2>How This Flows</h2>
+              </div>
+              <div className="step-list">
+                <div className="step-item">
+                  <strong>1. Define the project</strong>
+                  <span>Name, IDs, units, and coordinate reference details.</span>
+                </div>
+                <div className="step-item">
+                  <strong>2. Build the material library</strong>
+                  <span>Enter soil and rock properties once, then reuse them across cases.</span>
+                </div>
+                <div className="step-item">
+                  <strong>3. Assemble ground models</strong>
+                  <span>Add units, boundaries, groundwater, and analysis cases.</span>
+                </div>
+                <div className="step-item">
+                  <strong>4. Review or fine-tune in YAML</strong>
+                  <span>Use validation and the schema-aware Monaco editor before export.</span>
+                </div>
+              </div>
+            </article>
+          </section>
+
           <section className="card">
             <div className="section-head">
               <h2>Project</h2>
@@ -1103,26 +1295,41 @@ function App() {
               </label>
             </div>
           </section>
+        </section>
+      ) : null}
 
-          <section className="card">
-            <div className="section-head">
+      {activeTab === "materials" ? (
+        <section className="card">
+          <div className="section-head">
+            <div>
               <h2>Materials</h2>
-              <button
-                type="button"
-                onClick={() =>
-                  setDocumentState({
-                    ...documentState,
-                    materials: [...materials, defaultMaterial()]
-                  })
-                }
-              >
-                Add Material
-              </button>
+              <p className="section-copy">
+                Define the reusable material library first. Parameters live here and are shared by
+                cases in the models tab.
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={() =>
+                setDocumentState({
+                  ...documentState,
+                  materials: [...materials, defaultMaterial()]
+                })
+              }
+            >
+              Add Material
+            </button>
+          </div>
 
-            <div className="stack">
-              {materials.map((material, materialIndex) => (
-                <div className="subcard" key={material.id || materialIndex}>
+          <div className="stack">
+            {materials.length === 0 ? (
+              <div className="empty-state">
+                <strong>No materials yet.</strong>
+                <span>Add your first material to start building the library.</span>
+              </div>
+            ) : null}
+            {materials.map((material, materialIndex) => (
+              <div className="subcard" key={material.id || materialIndex}>
                   <div className="subhead">
                     <strong>{material.name || "Untitled Material"}</strong>
                     <button
@@ -1256,342 +1463,231 @@ function App() {
                   ))}
                 </div>
               ))}
-            </div>
-          </section>
+          </div>
+        </section>
+      ) : null}
 
-          <section className="card">
-            <div className="section-head">
+      {activeTab === "models" ? (
+        <section className="card">
+          <div className="section-head">
+            <div>
               <h2>Ground Models</h2>
-              <button
-                type="button"
-                onClick={() =>
-                  setDocumentState({
-                    ...documentState,
-                    ground_models: [...groundModels, defaultModel(materials[0]?.id ?? "")]
-                  })
-                }
-              >
-                Add Model
-              </button>
+              <p className="section-copy">
+                Add model extents, groundwater, cases, and units. Materials are selected from the
+                library you defined in the previous tab.
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                setDocumentState({
+                  ...documentState,
+                  ground_models: [...groundModels, defaultModel(materials[0]?.id ?? "")]
+                });
+                setSelectedModelIndex(groundModels.length);
+                setModelTab("overview");
+              }}
+            >
+              Add Model
+            </button>
+          </div>
 
-            <div className="stack">
-              {groundModels.map((model, modelIndex) => (
-                <div className="subcard" key={model.id || modelIndex}>
-                  <div className="subhead">
-                    <strong>{model.name || "Untitled Model"}</strong>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setDocumentState({
-                          ...documentState,
-                          ground_models: removeFromArray(groundModels, modelIndex)
-                        })
-                      }
-                    >
-                      Remove
-                    </button>
+          <div className="stack">
+            {groundModels.length === 0 ? (
+              <div className="empty-state">
+                <strong>No models yet.</strong>
+                <span>Create a ground model and then add cases and units inside it.</span>
+              </div>
+            ) : null}
+            {selectedModel ? (
+              <div className="model-workspace">
+                <aside className="model-rail">
+                  <div className="model-rail-head">
+                    <strong>Model Explorer</strong>
+                    <span>{groundModels.length} total</span>
                   </div>
-
-                  <div className="form-grid">
-                    <label>
-                      <span>ID</span>
-                      <input
-                        value={model.id}
-                        onChange={(event) =>
-                          setDocumentState({
-                            ...documentState,
-                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
-                              ...item,
-                              id: event.target.value
-                            }))
-                          })
+                  <div className="model-list">
+                    {groundModels.map((model, modelIndex) => (
+                      <button
+                        key={model.id || modelIndex}
+                        type="button"
+                        className={
+                          safeSelectedModelIndex === modelIndex
+                            ? "model-list-item active"
+                            : "model-list-item"
                         }
-                      />
-                    </label>
-                    <label>
-                      <span>Name</span>
-                      <input
-                        value={model.name}
-                        onChange={(event) =>
-                          setDocumentState({
-                            ...documentState,
-                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
-                              ...item,
-                              name: event.target.value
-                            }))
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      <span>Type</span>
-                      <select
-                        value={model.type ?? "design"}
-                        onChange={(event) =>
-                          setDocumentState({
-                            ...documentState,
-                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
-                              ...item,
-                              type: event.target.value as GroundModelType
-                            }))
-                          })
-                        }
+                        onClick={() => {
+                          setSelectedModelIndex(modelIndex);
+                          setModelTab("overview");
+                        }}
                       >
-                        {MODEL_TYPES.map((modelType) => (
-                          <option key={modelType} value={modelType}>
-                            {modelType}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      <span>Dimensionality</span>
-                      <select
-                        value={model.dimensionality ?? "1D"}
-                        onChange={(event) =>
-                          setDocumentState({
-                            ...documentState,
-                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
-                              ...item,
-                              dimensionality: event.target.value as Dimensionality
-                            }))
-                          })
-                        }
-                      >
-                        {DIMENSIONALITIES.map((dimensionality) => (
-                          <option key={dimensionality} value={dimensionality}>
-                            {dimensionality}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      <span>Model Base Elevation</span>
-                      <input
-                        type="number"
-                        value={model.model_base.elevation_mAOD}
-                        onChange={(event) =>
-                          setDocumentState({
-                            ...documentState,
-                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
-                              ...item,
-                              model_base: {
-                                ...item.model_base,
-                                elevation_mAOD: parseRequiredNumber(event.target.value)
-                              }
-                            }))
-                          })
-                        }
-                      />
-                    </label>
-                    <label>
-                      <span>Model Base Material</span>
-                      <select
-                        value={model.model_base.material_ref}
-                        onChange={(event) =>
-                          setDocumentState({
-                            ...documentState,
-                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
-                              ...item,
-                              model_base: {
-                                ...item.model_base,
-                                material_ref: event.target.value
-                              }
-                            }))
-                          })
-                        }
-                      >
-                        <option value="">Select material</option>
-                        {materials.map((material) => (
-                          <option key={material.id} value={material.id}>
-                            {material.id}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      <span>Model Base Condition</span>
-                      <select
-                        value={model.model_base.condition}
-                        onChange={(event) =>
-                          setDocumentState({
-                            ...documentState,
-                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
-                              ...item,
-                              model_base: {
-                                ...item.model_base,
-                                condition: event.target.value as Condition
-                              }
-                            }))
-                          })
-                        }
-                      >
-                        {CONDITIONS.map((condition) => (
-                          <option key={condition} value={condition}>
-                            {condition}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="full-width">
-                      <span>Section Line WKT</span>
-                      <textarea
-                        rows={2}
-                        value={model.section_line_wkt ?? ""}
-                        onChange={(event) =>
-                          setDocumentState({
-                            ...documentState,
-                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
-                              ...item,
-                              section_line_wkt: event.target.value
-                            }))
-                          })
-                        }
-                      />
-                    </label>
+                        <strong>{model.name || `Model ${modelIndex + 1}`}</strong>
+                        <span>{model.id || "No ID"}</span>
+                      </button>
+                    ))}
                   </div>
+                </aside>
 
-                  <div className="subsection">
-                    <div className="section-head small">
-                      <h3>Applicability</h3>
+                <div className="model-detail stack">
+                  <section className="subcard model-header-card">
+                    <div className="subhead">
+                      <div>
+                        <strong>{selectedModel.name || "Untitled Model"}</strong>
+                        <p className="section-copy">
+                          Work through one model at a time: define it, set geometry and hydro
+                          conditions, then add cases and units.
+                        </p>
+                      </div>
                       <button
                         type="button"
-                        onClick={() =>
+                        onClick={() => {
                           setDocumentState({
                             ...documentState,
-                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
-                              ...item,
-                              applicability: item.applicability
-                                ? undefined
-                                : {
-                                    description: "",
-                                    plan_polygon_wkt: "",
-                                    top_mAOD: undefined,
-                                    base_mAOD: undefined
-                                  }
-                            }))
-                          })
-                        }
+                            ground_models: removeFromArray(groundModels, safeSelectedModelIndex)
+                          });
+                          setSelectedModelIndex((current) =>
+                            Math.max(0, Math.min(current, groundModels.length - 2))
+                          );
+                          setModelTab("overview");
+                        }}
                       >
-                        {model.applicability ? "Remove Applicability" : "Add Applicability"}
+                        Remove Model
                       </button>
                     </div>
-                    {model.applicability ? (
+
+                    <div className="metric-grid compact-metrics">
+                      <div className="metric-card">
+                        <strong>{selectedModel.units?.length ?? 0}</strong>
+                        <span>Units</span>
+                      </div>
+                      <div className="metric-card">
+                        <strong>{selectedModel.cases?.length ?? 0}</strong>
+                        <span>Cases</span>
+                      </div>
+                      <div className="metric-card">
+                        <strong>{selectedModel.groundwater_level ? "On" : "Off"}</strong>
+                        <span>Groundwater</span>
+                      </div>
+                      <div className="metric-card">
+                        <strong>{selectedModel.dimensionality ?? "1D"}</strong>
+                        <span>Dimensionality</span>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="model-subtabs" aria-label="Model editing modes">
+                    {MODEL_WORKSPACE_TABS.map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        className={modelTab === tab.id ? "subtab-button active" : "subtab-button"}
+                        onClick={() => setModelTab(tab.id)}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </section>
+
+                  {modelTab === "overview" ? (
+                    <section className="subcard">
+                      <div className="section-head">
+                        <h3>Model Overview</h3>
+                      </div>
                       <div className="form-grid">
-                        <label className="full-width">
-                          <span>Description</span>
-                          <textarea
-                            rows={2}
-                            value={model.applicability.description ?? ""}
+                        <label>
+                          <span>ID</span>
+                          <input
+                            value={selectedModel.id}
                             onChange={(event) =>
                               setDocumentState({
                                 ...documentState,
-                                ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                                ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
                                   ...item,
-                                  applicability: {
-                                    ...item.applicability!,
-                                    description: event.target.value
-                                  }
-                                }))
-                              })
-                            }
-                          />
-                        </label>
-                        <label className="full-width">
-                          <span>Plan Polygon WKT</span>
-                          <textarea
-                            rows={2}
-                            value={model.applicability.plan_polygon_wkt ?? ""}
-                            onChange={(event) =>
-                              setDocumentState({
-                                ...documentState,
-                                ground_models: setInArray(groundModels, modelIndex, (item) => ({
-                                  ...item,
-                                  applicability: {
-                                    ...item.applicability!,
-                                    plan_polygon_wkt: event.target.value
-                                  }
+                                  id: event.target.value
                                 }))
                               })
                             }
                           />
                         </label>
                         <label>
-                          <span>Top mAOD</span>
+                          <span>Name</span>
                           <input
-                            type="number"
-                            value={model.applicability.top_mAOD ?? ""}
+                            value={selectedModel.name}
                             onChange={(event) =>
                               setDocumentState({
                                 ...documentState,
-                                ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                                ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
                                   ...item,
-                                  applicability: {
-                                    ...item.applicability!,
-                                    top_mAOD: parseOptionalNumber(event.target.value)
-                                  }
+                                  name: event.target.value
                                 }))
                               })
                             }
                           />
                         </label>
                         <label>
-                          <span>Base mAOD</span>
-                          <input
-                            type="number"
-                            value={model.applicability.base_mAOD ?? ""}
+                          <span>Type</span>
+                          <select
+                            value={selectedModel.type ?? "design"}
                             onChange={(event) =>
                               setDocumentState({
                                 ...documentState,
-                                ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                                ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
                                   ...item,
-                                  applicability: {
-                                    ...item.applicability!,
-                                    base_mAOD: parseOptionalNumber(event.target.value)
-                                  }
+                                  type: event.target.value as GroundModelType
                                 }))
                               })
                             }
-                          />
+                          >
+                            {MODEL_TYPES.map((modelType) => (
+                              <option key={modelType} value={modelType}>
+                                {modelType}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          <span>Dimensionality</span>
+                          <select
+                            value={selectedModel.dimensionality ?? "1D"}
+                            onChange={(event) =>
+                              setDocumentState({
+                                ...documentState,
+                                ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
+                                  ...item,
+                                  dimensionality: event.target.value as Dimensionality
+                                }))
+                              })
+                            }
+                          >
+                            {DIMENSIONALITIES.map((dimensionality) => (
+                              <option key={dimensionality} value={dimensionality}>
+                                {dimensionality}
+                              </option>
+                            ))}
+                          </select>
                         </label>
                       </div>
-                    ) : null}
-                  </div>
+                    </section>
+                  ) : null}
 
-                  <div className="subsection">
-                    <div className="section-head small">
-                      <h3>Groundwater</h3>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDocumentState({
-                            ...documentState,
-                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
-                              ...item,
-                              groundwater_level: item.groundwater_level
-                                ? undefined
-                                : { elevation_mAOD: 0 }
-                            }))
-                          })
-                        }
-                      >
-                        {model.groundwater_level ? "Remove Groundwater" : "Add Groundwater"}
-                      </button>
-                    </div>
-                    {model.groundwater_level ? (
+                  {modelTab === "geometry" ? (
+                    <section className="subcard">
+                      <div className="section-head">
+                        <h3>Geometry And Extents</h3>
+                      </div>
                       <div className="form-grid">
                         <label>
-                          <span>Elevation mAOD</span>
+                          <span>Model Base Elevation</span>
                           <input
                             type="number"
-                            value={model.groundwater_level.elevation_mAOD}
+                            value={selectedModel.model_base.elevation_mAOD}
                             onChange={(event) =>
                               setDocumentState({
                                 ...documentState,
-                                ground_models: setInArray(groundModels, modelIndex, (item) => ({
+                                ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
                                   ...item,
-                                  groundwater_level: {
+                                  model_base: {
+                                    ...item.model_base,
                                     elevation_mAOD: parseRequiredNumber(event.target.value)
                                   }
                                 }))
@@ -1599,402 +1695,648 @@ function App() {
                             }
                           />
                         </label>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="subsection">
-                    <div className="section-head small">
-                      <h3>Cases</h3>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDocumentState({
-                            ...documentState,
-                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
-                              ...item,
-                              cases: [...(item.cases ?? []), defaultCase()]
-                            }))
-                          })
-                        }
-                      >
-                        Add Case
-                      </button>
-                    </div>
-                    <div className="stack compact">
-                      {(model.cases ?? []).map((caseItem, caseIndex) => (
-                        <div className="mini-grid case-grid" key={caseItem.id || caseIndex}>
-                          <input
-                            placeholder="Case ID"
-                            value={caseItem.id}
-                            onChange={(event) =>
-                              setDocumentState({
-                                ...documentState,
-                                ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
-                                  ...modelItem,
-                                  cases: setInArray(modelItem.cases ?? [], caseIndex, (entry) => ({
-                                    ...entry,
-                                    id: event.target.value
-                                  }))
-                                }))
-                              })
-                            }
-                          />
-                          <input
-                            placeholder="Case name"
-                            value={caseItem.name}
-                            onChange={(event) =>
-                              setDocumentState({
-                                ...documentState,
-                                ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
-                                  ...modelItem,
-                                  cases: setInArray(modelItem.cases ?? [], caseIndex, (entry) => ({
-                                    ...entry,
-                                    name: event.target.value
-                                  }))
-                                }))
-                              })
-                            }
-                          />
+                        <label>
+                          <span>Model Base Material</span>
                           <select
-                            value={caseItem.drainage}
+                            value={selectedModel.model_base.material_ref}
                             onChange={(event) =>
                               setDocumentState({
                                 ...documentState,
-                                ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
-                                  ...modelItem,
-                                  cases: setInArray(modelItem.cases ?? [], caseIndex, (entry) => ({
-                                    ...entry,
-                                    drainage: event.target.value as Drainage
-                                  }))
+                                ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
+                                  ...item,
+                                  model_base: {
+                                    ...item.model_base,
+                                    material_ref: event.target.value
+                                  }
                                 }))
                               })
                             }
                           >
-                            {DRAINAGES.map((drainage) => (
-                              <option key={drainage} value={drainage}>
-                                {drainage}
+                            <option value="">Select material</option>
+                            {materials.map((material) => (
+                              <option key={material.id} value={material.id}>
+                                {material.id}
                               </option>
                             ))}
                           </select>
+                        </label>
+                        <label>
+                          <span>Model Base Condition</span>
+                          <select
+                            value={selectedModel.model_base.condition}
+                            onChange={(event) =>
+                              setDocumentState({
+                                ...documentState,
+                                ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
+                                  ...item,
+                                  model_base: {
+                                    ...item.model_base,
+                                    condition: event.target.value as Condition
+                                  }
+                                }))
+                              })
+                            }
+                          >
+                            {CONDITIONS.map((condition) => (
+                              <option key={condition} value={condition}>
+                                {condition}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="full-width">
+                          <span>Section Line WKT</span>
+                          <textarea
+                            rows={2}
+                            value={selectedModel.section_line_wkt ?? ""}
+                            onChange={(event) =>
+                              setDocumentState({
+                                ...documentState,
+                                ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
+                                  ...item,
+                                  section_line_wkt: event.target.value
+                                }))
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+
+                      <div className="subsection">
+                        <div className="section-head small">
+                          <h3>Applicability</h3>
                           <button
                             type="button"
                             onClick={() =>
                               setDocumentState({
                                 ...documentState,
-                                ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
-                                  ...modelItem,
-                                  cases: removeFromArray(modelItem.cases ?? [], caseIndex)
+                                ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
+                                  ...item,
+                                  applicability: item.applicability
+                                    ? undefined
+                                    : {
+                                        description: "",
+                                        plan_polygon_wkt: "",
+                                        top_mAOD: undefined,
+                                        base_mAOD: undefined
+                                      }
                                 }))
                               })
                             }
                           >
-                            Remove
+                            {selectedModel.applicability ? "Remove Applicability" : "Add Applicability"}
                           </button>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="subsection">
-                    <div className="section-head small">
-                      <h3>Units</h3>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setDocumentState({
-                            ...documentState,
-                            ground_models: setInArray(groundModels, modelIndex, (item) => ({
-                              ...item,
-                              units: [...(item.units ?? []), defaultUnit(materials[0]?.id ?? "")]
-                            }))
-                          })
-                        }
-                      >
-                        Add Unit
-                      </button>
-                    </div>
-
-                    <div className="stack">
-                      {(model.units ?? []).map((unit, unitIndex) => {
-                        const baseMode =
-                          typeof unit.base === "object"
-                            ? "elevation"
-                            : unit.base === "MODEL_BASE"
-                              ? "model-base"
-                              : "unit-ref";
-
-                        return (
-                          <div className="subcard inset" key={unit.id || unitIndex}>
-                            <div className="subhead">
-                              <strong>{unit.name || unit.id || "Untitled Unit"}</strong>
-                              <button
-                                type="button"
-                                onClick={() =>
+                        {selectedModel.applicability ? (
+                          <div className="form-grid">
+                            <label className="full-width">
+                              <span>Description</span>
+                              <textarea
+                                rows={2}
+                                value={selectedModel.applicability.description ?? ""}
+                                onChange={(event) =>
                                   setDocumentState({
                                     ...documentState,
-                                    ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
-                                      ...modelItem,
-                                      units: removeFromArray(modelItem.units ?? [], unitIndex)
+                                    ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
+                                      ...item,
+                                      applicability: {
+                                        ...item.applicability!,
+                                        description: event.target.value
+                                      }
                                     }))
                                   })
                                 }
-                              >
-                                Remove
-                              </button>
-                            </div>
+                              />
+                            </label>
+                            <label className="full-width">
+                              <span>Plan Polygon WKT</span>
+                              <textarea
+                                rows={2}
+                                value={selectedModel.applicability.plan_polygon_wkt ?? ""}
+                                onChange={(event) =>
+                                  setDocumentState({
+                                    ...documentState,
+                                    ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
+                                      ...item,
+                                      applicability: {
+                                        ...item.applicability!,
+                                        plan_polygon_wkt: event.target.value
+                                      }
+                                    }))
+                                  })
+                                }
+                              />
+                            </label>
+                            <label>
+                              <span>Top mAOD</span>
+                              <input
+                                type="number"
+                                value={selectedModel.applicability.top_mAOD ?? ""}
+                                onChange={(event) =>
+                                  setDocumentState({
+                                    ...documentState,
+                                    ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
+                                      ...item,
+                                      applicability: {
+                                        ...item.applicability!,
+                                        top_mAOD: parseOptionalNumber(event.target.value)
+                                      }
+                                    }))
+                                  })
+                                }
+                              />
+                            </label>
+                            <label>
+                              <span>Base mAOD</span>
+                              <input
+                                type="number"
+                                value={selectedModel.applicability.base_mAOD ?? ""}
+                                onChange={(event) =>
+                                  setDocumentState({
+                                    ...documentState,
+                                    ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
+                                      ...item,
+                                      applicability: {
+                                        ...item.applicability!,
+                                        base_mAOD: parseOptionalNumber(event.target.value)
+                                      }
+                                    }))
+                                  })
+                                }
+                              />
+                            </label>
+                          </div>
+                        ) : (
+                          <div className="empty-state">
+                            <strong>No applicability envelope yet.</strong>
+                            <span>Add one if this model only applies to a specific area or elevation range.</span>
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  ) : null}
 
-                            <div className="form-grid">
-                              <label>
-                                <span>ID</span>
-                                <input
-                                  value={unit.id}
-                                  onChange={(event) =>
-                                    setDocumentState({
-                                      ...documentState,
-                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
-                                        ...modelItem,
-                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
-                                          ...unitItem,
-                                          id: event.target.value
-                                        }))
-                                      }))
-                                    })
-                                  }
-                                />
-                              </label>
-                              <label>
-                                <span>Name</span>
-                                <input
-                                  value={unit.name ?? ""}
-                                  onChange={(event) =>
-                                    setDocumentState({
-                                      ...documentState,
-                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
-                                        ...modelItem,
-                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
-                                          ...unitItem,
-                                          name: event.target.value
-                                        }))
-                                      }))
-                                    })
-                                  }
-                                />
-                              </label>
-                              <label>
-                                <span>Material</span>
-                                <select
-                                  value={unit.material_ref}
-                                  onChange={(event) =>
-                                    setDocumentState({
-                                      ...documentState,
-                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
-                                        ...modelItem,
-                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
-                                          ...unitItem,
-                                          material_ref: event.target.value
-                                        }))
-                                      }))
-                                    })
-                                  }
-                                >
-                                  <option value="">Select material</option>
-                                  {materials.map((material) => (
-                                    <option key={material.id} value={material.id}>
-                                      {material.id}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                              <label>
-                                <span>Top mAOD</span>
-                                <input
-                                  type="number"
-                                  value={unit.top_mAOD ?? ""}
-                                  onChange={(event) =>
-                                    setDocumentState({
-                                      ...documentState,
-                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
-                                        ...modelItem,
-                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
-                                          ...unitItem,
-                                          top_mAOD: parseOptionalNumber(event.target.value)
-                                        }))
-                                      }))
-                                    })
-                                  }
-                                />
-                              </label>
-                              <label>
-                                <span>Base Mode</span>
-                                <select
-                                  value={baseMode}
-                                  onChange={(event) =>
-                                    setDocumentState({
-                                      ...documentState,
-                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
-                                        ...modelItem,
-                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
-                                          ...unitItem,
-                                          base:
-                                            event.target.value === "model-base"
-                                              ? "MODEL_BASE"
-                                              : event.target.value === "unit-ref"
-                                                ? ""
-                                                : { mAOD: 0 }
-                                        }))
-                                      }))
-                                    })
-                                  }
-                                >
-                                  <option value="model-base">MODEL_BASE</option>
-                                  <option value="unit-ref">Unit reference</option>
-                                  <option value="elevation">Elevation</option>
-                                </select>
-                              </label>
-                              <label>
-                                <span>Base Condition</span>
-                                <select
-                                  value={unit.base_condition ?? ""}
-                                  onChange={(event) =>
-                                    setDocumentState({
-                                      ...documentState,
-                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
-                                        ...modelItem,
-                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
-                                          ...unitItem,
-                                          base_condition: event.target.value
-                                            ? (event.target.value as Condition)
-                                            : undefined
-                                        }))
-                                      }))
-                                    })
-                                  }
-                                >
-                                  <option value="">None</option>
-                                  {CONDITIONS.map((condition) => (
-                                    <option key={condition} value={condition}>
-                                      {condition}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
+                  {modelTab === "hydro" ? (
+                    <section className="subcard">
+                      <div className="section-head">
+                        <h3>Hydro Conditions</h3>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDocumentState({
+                              ...documentState,
+                              ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
+                                ...item,
+                                groundwater_level: item.groundwater_level
+                                  ? undefined
+                                  : { elevation_mAOD: 0 }
+                              }))
+                            })
+                          }
+                        >
+                          {selectedModel.groundwater_level ? "Remove Groundwater" : "Add Groundwater"}
+                        </button>
+                      </div>
+                      {selectedModel.groundwater_level ? (
+                        <div className="form-grid">
+                          <label>
+                            <span>Elevation mAOD</span>
+                            <input
+                              type="number"
+                              value={selectedModel.groundwater_level.elevation_mAOD}
+                              onChange={(event) =>
+                                setDocumentState({
+                                  ...documentState,
+                                  ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
+                                    ...item,
+                                    groundwater_level: {
+                                      elevation_mAOD: parseRequiredNumber(event.target.value)
+                                    }
+                                  }))
+                                })
+                              }
+                            />
+                          </label>
+                        </div>
+                      ) : (
+                        <div className="empty-state">
+                          <strong>No groundwater level defined.</strong>
+                          <span>Add it when this model needs a representative groundwater elevation.</span>
+                        </div>
+                      )}
+                    </section>
+                  ) : null}
 
-                              {baseMode === "unit-ref" ? (
-                                <label className="full-width">
-                                  <span>Base Unit ID</span>
+                  {modelTab === "cases" ? (
+                    <section className="subcard">
+                      <div className="section-head">
+                        <h3>Cases</h3>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDocumentState({
+                              ...documentState,
+                              ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
+                                ...item,
+                                cases: [...(item.cases ?? []), defaultCase()]
+                              }))
+                            })
+                          }
+                        >
+                          Add Case
+                        </button>
+                      </div>
+                      <div className="stack compact">
+                        {(selectedModel.cases ?? []).length === 0 ? (
+                          <div className="empty-state">
+                            <strong>No cases yet.</strong>
+                            <span>Add drainage cases so units can reference the right material parameters.</span>
+                          </div>
+                        ) : null}
+                        {(selectedModel.cases ?? []).map((caseItem, caseIndex) => (
+                          <div className="mini-grid case-grid" key={caseItem.id || caseIndex}>
+                            <input
+                              placeholder="Case ID"
+                              value={caseItem.id}
+                              onChange={(event) =>
+                                setDocumentState({
+                                  ...documentState,
+                                  ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
+                                    ...modelItem,
+                                    cases: setInArray(modelItem.cases ?? [], caseIndex, (entry) => ({
+                                      ...entry,
+                                      id: event.target.value
+                                    }))
+                                  }))
+                                })
+                              }
+                            />
+                            <input
+                              placeholder="Case name"
+                              value={caseItem.name}
+                              onChange={(event) =>
+                                setDocumentState({
+                                  ...documentState,
+                                  ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
+                                    ...modelItem,
+                                    cases: setInArray(modelItem.cases ?? [], caseIndex, (entry) => ({
+                                      ...entry,
+                                      name: event.target.value
+                                    }))
+                                  }))
+                                })
+                              }
+                            />
+                            <select
+                              value={caseItem.drainage}
+                              onChange={(event) =>
+                                setDocumentState({
+                                  ...documentState,
+                                  ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
+                                    ...modelItem,
+                                    cases: setInArray(modelItem.cases ?? [], caseIndex, (entry) => ({
+                                      ...entry,
+                                      drainage: event.target.value as Drainage
+                                    }))
+                                  }))
+                                })
+                              }
+                            >
+                              {DRAINAGES.map((drainage) => (
+                                <option key={drainage} value={drainage}>
+                                  {drainage}
+                                </option>
+                              ))}
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setDocumentState({
+                                  ...documentState,
+                                  ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
+                                    ...modelItem,
+                                    cases: removeFromArray(modelItem.cases ?? [], caseIndex)
+                                  }))
+                                })
+                              }
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {modelTab === "units" ? (
+                    <section className="subcard">
+                      <div className="section-head">
+                        <h3>Units</h3>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDocumentState({
+                              ...documentState,
+                              ground_models: setInArray(groundModels, safeSelectedModelIndex, (item) => ({
+                                ...item,
+                                units: [...(item.units ?? []), defaultUnit(materials[0]?.id ?? "")]
+                              }))
+                            })
+                          }
+                        >
+                          Add Unit
+                        </button>
+                      </div>
+
+                      <div className="stack">
+                        {(selectedModel.units ?? []).length === 0 ? (
+                          <div className="empty-state">
+                            <strong>No units yet.</strong>
+                            <span>Add stratigraphic units and connect each one to a material definition.</span>
+                          </div>
+                        ) : null}
+                        {(selectedModel.units ?? []).map((unit, unitIndex) => {
+                          const baseMode =
+                            typeof unit.base === "object"
+                              ? "elevation"
+                              : unit.base === "MODEL_BASE"
+                                ? "model-base"
+                                : "unit-ref";
+
+                          return (
+                            <div className="subcard inset" key={unit.id || unitIndex}>
+                              <div className="subhead">
+                                <strong>{unit.name || unit.id || "Untitled Unit"}</strong>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDocumentState({
+                                      ...documentState,
+                                      ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
+                                        ...modelItem,
+                                        units: removeFromArray(modelItem.units ?? [], unitIndex)
+                                      }))
+                                    })
+                                  }
+                                >
+                                  Remove
+                                </button>
+                              </div>
+
+                              <div className="form-grid">
+                                <label>
+                                  <span>ID</span>
                                   <input
-                                    value={typeof unit.base === "string" && unit.base !== "MODEL_BASE" ? unit.base : ""}
+                                    value={unit.id}
                                     onChange={(event) =>
                                       setDocumentState({
                                         ...documentState,
-                                        ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                        ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
                                           ...modelItem,
                                           units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
                                             ...unitItem,
-                                            base: event.target.value
+                                            id: event.target.value
                                           }))
                                         }))
                                       })
                                     }
                                   />
                                 </label>
-                              ) : null}
-
-                              {baseMode === "elevation" ? (
-                                <label className="full-width">
-                                  <span>Base Elevation mAOD</span>
+                                <label>
+                                  <span>Name</span>
+                                  <input
+                                    value={unit.name ?? ""}
+                                    onChange={(event) =>
+                                      setDocumentState({
+                                        ...documentState,
+                                        ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
+                                          ...modelItem,
+                                          units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                            ...unitItem,
+                                            name: event.target.value
+                                          }))
+                                        }))
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label>
+                                  <span>Material</span>
+                                  <select
+                                    value={unit.material_ref}
+                                    onChange={(event) =>
+                                      setDocumentState({
+                                        ...documentState,
+                                        ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
+                                          ...modelItem,
+                                          units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                            ...unitItem,
+                                            material_ref: event.target.value
+                                          }))
+                                        }))
+                                      })
+                                    }
+                                  >
+                                    <option value="">Select material</option>
+                                    {materials.map((material) => (
+                                      <option key={material.id} value={material.id}>
+                                        {material.id}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <label>
+                                  <span>Top mAOD</span>
                                   <input
                                     type="number"
-                                    value={typeof unit.base === "object" ? unit.base.mAOD : ""}
+                                    value={unit.top_mAOD ?? ""}
                                     onChange={(event) =>
                                       setDocumentState({
                                         ...documentState,
-                                        ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
+                                        ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
                                           ...modelItem,
                                           units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
                                             ...unitItem,
-                                            base: {
-                                              mAOD: parseRequiredNumber(event.target.value)
-                                            }
+                                            top_mAOD: parseOptionalNumber(event.target.value)
                                           }))
                                         }))
                                       })
                                     }
                                   />
                                 </label>
-                              ) : null}
+                                <label>
+                                  <span>Base Mode</span>
+                                  <select
+                                    value={baseMode}
+                                    onChange={(event) =>
+                                      setDocumentState({
+                                        ...documentState,
+                                        ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
+                                          ...modelItem,
+                                          units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                            ...unitItem,
+                                            base:
+                                              event.target.value === "model-base"
+                                                ? "MODEL_BASE"
+                                                : event.target.value === "unit-ref"
+                                                  ? ""
+                                                  : { mAOD: 0 }
+                                          }))
+                                        }))
+                                      })
+                                    }
+                                  >
+                                    <option value="model-base">MODEL_BASE</option>
+                                    <option value="unit-ref">Unit reference</option>
+                                    <option value="elevation">Elevation</option>
+                                  </select>
+                                </label>
+                                <label>
+                                  <span>Base Condition</span>
+                                  <select
+                                    value={unit.base_condition ?? ""}
+                                    onChange={(event) =>
+                                      setDocumentState({
+                                        ...documentState,
+                                        ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
+                                          ...modelItem,
+                                          units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                            ...unitItem,
+                                            base_condition: event.target.value
+                                              ? (event.target.value as Condition)
+                                              : undefined
+                                          }))
+                                        }))
+                                      })
+                                    }
+                                  >
+                                    <option value="">None</option>
+                                    {CONDITIONS.map((condition) => (
+                                      <option key={condition} value={condition}>
+                                        {condition}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
 
-                              <label className="full-width">
-                                <span>Geometry WKT</span>
-                                <textarea
-                                  rows={2}
-                                  value={unit.geometry_wkt ?? ""}
-                                  onChange={(event) =>
-                                    setDocumentState({
-                                      ...documentState,
-                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
-                                        ...modelItem,
-                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
-                                          ...unitItem,
-                                          geometry_wkt: event.target.value
+                                {baseMode === "unit-ref" ? (
+                                  <label className="full-width">
+                                    <span>Base Unit ID</span>
+                                    <input
+                                      value={typeof unit.base === "string" && unit.base !== "MODEL_BASE" ? unit.base : ""}
+                                      onChange={(event) =>
+                                        setDocumentState({
+                                          ...documentState,
+                                          ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
+                                            ...modelItem,
+                                            units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                              ...unitItem,
+                                              base: event.target.value
+                                            }))
+                                          }))
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                ) : null}
+
+                                {baseMode === "elevation" ? (
+                                  <label className="full-width">
+                                    <span>Base Elevation mAOD</span>
+                                    <input
+                                      type="number"
+                                      value={typeof unit.base === "object" ? unit.base.mAOD : ""}
+                                      onChange={(event) =>
+                                        setDocumentState({
+                                          ...documentState,
+                                          ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
+                                            ...modelItem,
+                                            units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                              ...unitItem,
+                                              base: {
+                                                mAOD: parseRequiredNumber(event.target.value)
+                                              }
+                                            }))
+                                          }))
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                ) : null}
+
+                                <label className="full-width">
+                                  <span>Geometry WKT</span>
+                                  <textarea
+                                    rows={2}
+                                    value={unit.geometry_wkt ?? ""}
+                                    onChange={(event) =>
+                                      setDocumentState({
+                                        ...documentState,
+                                        ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
+                                          ...modelItem,
+                                          units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                            ...unitItem,
+                                            geometry_wkt: event.target.value
+                                          }))
                                         }))
-                                      }))
-                                    })
-                                  }
-                                />
-                              </label>
-                              <label className="full-width">
-                                <span>Top Surface WKT</span>
-                                <textarea
-                                  rows={2}
-                                  value={unit.top_surface_wkt ?? ""}
-                                  onChange={(event) =>
-                                    setDocumentState({
-                                      ...documentState,
-                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
-                                        ...modelItem,
-                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
-                                          ...unitItem,
-                                          top_surface_wkt: event.target.value
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label className="full-width">
+                                  <span>Top Surface WKT</span>
+                                  <textarea
+                                    rows={2}
+                                    value={unit.top_surface_wkt ?? ""}
+                                    onChange={(event) =>
+                                      setDocumentState({
+                                        ...documentState,
+                                        ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
+                                          ...modelItem,
+                                          units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                            ...unitItem,
+                                            top_surface_wkt: event.target.value
+                                          }))
                                         }))
-                                      }))
-                                    })
-                                  }
-                                />
-                              </label>
-                              <label className="full-width">
-                                <span>Volume WKT</span>
-                                <textarea
-                                  rows={2}
-                                  value={unit.volume_wkt ?? ""}
-                                  onChange={(event) =>
-                                    setDocumentState({
-                                      ...documentState,
-                                      ground_models: setInArray(groundModels, modelIndex, (modelItem) => ({
-                                        ...modelItem,
-                                        units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
-                                          ...unitItem,
-                                          volume_wkt: event.target.value
+                                      })
+                                    }
+                                  />
+                                </label>
+                                <label className="full-width">
+                                  <span>Volume WKT</span>
+                                  <textarea
+                                    rows={2}
+                                    value={unit.volume_wkt ?? ""}
+                                    onChange={(event) =>
+                                      setDocumentState({
+                                        ...documentState,
+                                        ground_models: setInArray(groundModels, safeSelectedModelIndex, (modelItem) => ({
+                                          ...modelItem,
+                                          units: setInArray(modelItem.units ?? [], unitIndex, (unitItem) => ({
+                                            ...unitItem,
+                                            volume_wkt: event.target.value
+                                          }))
                                         }))
-                                      }))
-                                    })
-                                  }
-                                />
-                              </label>
+                                      })
+                                    }
+                                  />
+                                </label>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ) : null}
                 </div>
-              ))}
-            </div>
-          </section>
-        </div>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
-        <aside className="side-column">
+      {activeTab === "review" ? (
+        <section className="layout review-layout">
           <section className="card">
             <div className="section-head">
               <h2>Validation</h2>
@@ -2027,8 +2369,101 @@ function App() {
             </div>
             <textarea readOnly rows={18} value={agsiText} />
           </section>
-        </aside>
-      </section>
+        </section>
+      ) : null}
+
+      {activeTab === "yaml" ? (
+        <section className="stack">
+          <section className="card">
+            <div className="section-head">
+              <div>
+                <h2>Advanced YAML Editor</h2>
+                <p className="section-copy">
+                  Monaco is configured against the current Groundmodel schema for completion,
+                  hover, and validation. Changes apply only when you confirm them.
+                </p>
+              </div>
+              <div className="toolbar">
+                <button type="button" onClick={applyYamlDraft}>
+                  Apply YAML
+                </button>
+                <button type="button" onClick={resetYamlDraft}>
+                  Reset Draft
+                </button>
+              </div>
+            </div>
+            {yamlError ? <section className="notice error">{yamlError}</section> : null}
+            <div className="editor-frame">
+              <Editor
+                defaultLanguage="yaml"
+                height="540px"
+                language="yaml"
+                options={{
+                  automaticLayout: true,
+                  minimap: { enabled: false },
+                  fontSize: 14,
+                  lineNumbersMinChars: 3,
+                  padding: { top: 16, bottom: 16 },
+                  scrollBeyondLastLine: false,
+                  tabSize: 2,
+                  wordWrap: "on"
+                }}
+                path="groundmodel.yaml"
+                theme="vs"
+                value={yamlDraft}
+                onChange={(value) => {
+                  setYamlDraft(value ?? "");
+                  setYamlDirty(true);
+                }}
+              />
+            </div>
+          </section>
+
+          <section className="overview-grid">
+            <article className="card workflow-card">
+              <div className="section-head">
+                <h2>Draft Status</h2>
+              </div>
+              <div className="step-list">
+                <div className="step-item">
+                  <strong>{yamlDirty ? "Unsaved draft edits" : "Draft matches current model"}</strong>
+                  <span>
+                    {yamlDirty
+                      ? "Apply the YAML to push changes back into the structured editor."
+                      : "Structured tabs and YAML are in sync."}
+                  </span>
+                </div>
+                <div className="step-item">
+                  <strong>{diagnostics.length === 0 ? "No validation issues" : "Validation still runs on apply"}</strong>
+                  <span>
+                    Schema completion helps with shape, but project rules are still checked in the
+                    Review tab.
+                  </span>
+                </div>
+              </div>
+            </article>
+
+            <article className="card workflow-card">
+              <div className="section-head">
+                <h2>Current Validation Snapshot</h2>
+              </div>
+              {diagnostics.length === 0 ? (
+                <p className="clean">No current validation issues.</p>
+              ) : (
+                <div className="stack compact">
+                  {diagnostics.slice(0, 4).map((diagnostic, index) => (
+                    <div className="notice" key={`${diagnostic.code}-${index}`}>
+                      <strong>{diagnostic.code}</strong>
+                      <span>{diagnostic.path}</span>
+                      <p>{diagnostic.message}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </article>
+          </section>
+        </section>
+      ) : null}
     </main>
   );
 }
