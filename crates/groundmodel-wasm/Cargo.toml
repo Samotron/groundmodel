@@ -1,0 +1,13 @@
+[package]
+name = "groundmodel-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+groundmodel-core = { path = "../groundmodel-core" }
+serde_json.workspace = true
+wasm-bindgen.workspace = true

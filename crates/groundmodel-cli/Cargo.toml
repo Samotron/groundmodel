@@ -1,0 +1,12 @@
+[package]
+name = "groundmodel-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+groundmodel-core = { path = "../groundmodel-core" }
+serde_json.workspace = true
+serde_yaml.workspace = true

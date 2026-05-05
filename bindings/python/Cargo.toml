@@ -1,0 +1,13 @@
+[package]
+name = "groundmodel-python"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "groundmodel"
+crate-type = ["cdylib"]
+
+[dependencies]
+groundmodel-core = { path = "../../crates/groundmodel-core" }
+pyo3 = { version = "0.28", features = ["extension-module"] }
+serde_json = "1.0"

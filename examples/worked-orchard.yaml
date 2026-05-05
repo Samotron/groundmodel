@@ -1,0 +1,46 @@
+schema_version: "0.1.0"
+project:
+  id: "EXAMPLE-01"
+  name: "Worked Orchard Example"
+  vertical_datum: "mAOD"
+  horizontal_crs: "EPSG:27700"
+materials:
+  - id: "MAT-CLAY"
+    name: "London Clay"
+    color: "#A87C4F"
+    hatch: "clay"
+    parameter_sets:
+      undrained:
+        gamma: 19
+        cu: 75
+      drained:
+        gamma: 19
+        phi_prime: 26
+        c_prime: 5
+ground_models:
+  - id: "GM-01"
+    name: "Site-wide Ground Model"
+    type: "design"
+    dimensionality: "1D"
+    applicability:
+      description: "Applies south of the river."
+      plan_polygon_wkt: "POLYGON((535000 180000, 535500 180000, 535500 180500, 535000 180500, 535000 180000))"
+      top_mAOD: 65.0
+      base_mAOD: 20.0
+    groundwater_level:
+      elevation_mAOD: 58.5
+    model_base:
+      elevation_mAOD: 20.0
+      material_ref: "MAT-CLAY"
+      condition: "assumed"
+    units:
+      - id: "UNIT-CLAY"
+        name: "London Clay"
+        material_ref: "MAT-CLAY"
+        top_mAOD: 60.2
+        base: "MODEL_BASE"
+        base_condition: "not_proven"
+    cases:
+      - id: "SLS-UND"
+        name: "SLS - Undrained"
+        drainage: "undrained"

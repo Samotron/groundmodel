@@ -1,0 +1,480 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "GroundModelDocument",
+  "type": "object",
+  "required": [
+    "project",
+    "schema_version"
+  ],
+  "properties": {
+    "ground_models": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/GroundModel"
+      }
+    },
+    "materials": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Material"
+      }
+    },
+    "project": {
+      "$ref": "#/definitions/Project"
+    },
+    "schema_version": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "Applicability": {
+      "type": "object",
+      "properties": {
+        "base_mAOD": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plan_polygon_wkt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "top_mAOD": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "additionalProperties": false
+    },
+    "BaseRef": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "ModelBase"
+          ]
+        },
+        {
+          "type": "object",
+          "required": [
+            "Unit"
+          ],
+          "properties": {
+            "Unit": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "Elevation"
+          ],
+          "properties": {
+            "Elevation": {
+              "type": "object",
+              "required": [
+                "m_aod"
+              ],
+              "properties": {
+                "m_aod": {
+                  "type": "number",
+                  "format": "double"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Case": {
+      "type": "object",
+      "required": [
+        "drainage",
+        "id",
+        "name"
+      ],
+      "properties": {
+        "drainage": {
+          "$ref": "#/definitions/Drainage"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Condition": {
+      "type": "string",
+      "enum": [
+        "proven",
+        "not_proven",
+        "assumed",
+        "inferred"
+      ]
+    },
+    "Dimensionality": {
+      "type": "string",
+      "enum": [
+        "1D",
+        "2D",
+        "3D"
+      ]
+    },
+    "Drainage": {
+      "type": "string",
+      "enum": [
+        "undrained",
+        "drained",
+        "total",
+        "effective"
+      ]
+    },
+    "GroundModel": {
+      "type": "object",
+      "required": [
+        "id",
+        "model_base",
+        "name"
+      ],
+      "properties": {
+        "applicability": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Applicability"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cases": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Case"
+          }
+        },
+        "dimensionality": {
+          "default": "1D",
+          "allOf": [
+            {
+              "$ref": "#/definitions/Dimensionality"
+            }
+          ]
+        },
+        "groundwater_level": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/GroundwaterLevel"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "model_base": {
+          "$ref": "#/definitions/ModelBase"
+        },
+        "name": {
+          "type": "string"
+        },
+        "section_line_wkt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "default": "design",
+          "allOf": [
+            {
+              "$ref": "#/definitions/GroundModelType"
+            }
+          ]
+        },
+        "units": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Unit"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "GroundModelType": {
+      "type": "string",
+      "enum": [
+        "observational",
+        "design",
+        "hydrogeological"
+      ]
+    },
+    "GroundwaterLevel": {
+      "type": "object",
+      "required": [
+        "elevation_mAOD"
+      ],
+      "properties": {
+        "elevation_mAOD": {
+          "type": "number",
+          "format": "double"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Material": {
+      "type": "object",
+      "required": [
+        "id",
+        "name"
+      ],
+      "properties": {
+        "color": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hatch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "parameter_sets": {
+          "default": {},
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/definitions/ParameterValue"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ModelBase": {
+      "type": "object",
+      "required": [
+        "condition",
+        "elevation_mAOD",
+        "material_ref"
+      ],
+      "properties": {
+        "condition": {
+          "$ref": "#/definitions/Condition"
+        },
+        "elevation_mAOD": {
+          "type": "number",
+          "format": "double"
+        },
+        "material_ref": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ParameterRange": {
+      "type": "object",
+      "properties": {
+        "char": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "max": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "min": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ParameterValue": {
+      "anyOf": [
+        {
+          "type": "number",
+          "format": "double"
+        },
+        {
+          "$ref": "#/definitions/ParameterRange"
+        }
+      ]
+    },
+    "Project": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "vertical_datum"
+      ],
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "horizontal_crs": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "units": {
+          "default": "SI",
+          "allOf": [
+            {
+              "$ref": "#/definitions/UnitSystem"
+            }
+          ]
+        },
+        "vertical_datum": {
+          "$ref": "#/definitions/VerticalDatum"
+        }
+      },
+      "additionalProperties": false
+    },
+    "Unit": {
+      "type": "object",
+      "required": [
+        "base",
+        "id",
+        "material_ref"
+      ],
+      "properties": {
+        "base": {
+          "$ref": "#/definitions/BaseRef"
+        },
+        "base_condition": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Condition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "geometry_wkt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "material_ref": {
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "top_mAOD": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "format": "double"
+        },
+        "top_surface_wkt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "volume_wkt": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "UnitSystem": {
+      "type": "string",
+      "enum": [
+        "SI",
+        "imperial"
+      ]
+    },
+    "VerticalDatum": {
+      "type": "string",
+      "enum": [
+        "mAOD",
+        "mOD",
+        "mASL",
+        "mBGL",
+        "local"
+      ]
+    }
+  }
+}

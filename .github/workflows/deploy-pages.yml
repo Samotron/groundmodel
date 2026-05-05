@@ -1,0 +1,127 @@
+name: Deploy Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Site
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    outputs:
+      calver: ${{ steps.calver.outputs.calver }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Compute CalVer
+        id: calver
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          base="$(date -u +'%Y.%m.%d')"
+          if git rev-parse -q --verify "refs/tags/${base}" >/dev/null; then
+            suffix="$(git tag --list "${base}.*" | sed -E "s/^${base}\.//" | awk '/^[0-9]+$/' | sort -n | tail -1)"
+            if [ -n "${suffix}" ]; then
+              calver="${base}.$((suffix + 1))"
+            else
+              calver="${base}.1"
+            fi
+          else
+            calver="${base}"
+          fi
+          echo "calver=${calver}" >> "${GITHUB_OUTPUT}"
+
+      - name: Write release metadata
+        shell: bash
+        working-directory: ${{ github.workspace }}/web
+        run: |
+          mkdir -p dist
+          printf '{\n  "version": "%s",\n  "deployed_at_utc": "%s"\n}\n' \
+            "${{ steps.calver.outputs.calver }}" \
+            "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" > dist/release.json
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    name: Deploy
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  release:
+    name: Tag Release
+    needs:
+      - build
+      - deploy
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create CalVer tag
+        env:
+          CALVER: ${{ needs.build.outputs.calver }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git rev-parse -q --verify "refs/tags/${CALVER}" >/dev/null; then
+            echo "Tag ${CALVER} already exists"
+            exit 0
+          fi
+          git tag -a "${CALVER}" -m "GitHub Pages release ${CALVER}"
+          git push origin "refs/tags/${CALVER}"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.calver }}
+          name: ${{ needs.build.outputs.calver }}
+          generate_release_notes: true
